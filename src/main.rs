@@ -3,7 +3,7 @@ use std::{borrow::Cow, sync::Arc};
 use wgpu::{Device, Queue, RenderPipeline, Surface};
 use winit::{
     application::ApplicationHandler,
-    event::WindowEvent,
+    event::{DeviceEvent, ElementState, WindowEvent},
     event_loop::{ControlFlow, EventLoop},
     window::Window,
 };
@@ -18,6 +18,9 @@ struct App {
 struct InnerApp {
     pub window: Arc<Window>,
     pub gpu: Wgpu,
+
+    pub focused: bool,
+    pub left_mouse: ElementState,
 }
 
 impl InnerApp {
@@ -30,7 +33,12 @@ impl InnerApp {
         let window = Arc::new(event_loop.create_window(window_attributes).unwrap());
         let gpu = pollster::block_on(Wgpu::new(Arc::clone(&window)));
 
-        InnerApp { window, gpu }
+        InnerApp {
+            window,
+            gpu,
+            focused: true,
+            left_mouse: ElementState::Released,
+        }
     }
 }
 
@@ -71,20 +79,22 @@ impl ApplicationHandler for App {
                     let view = frame
                         .texture
                         .create_view(&wgpu::TextureViewDescriptor::default());
-                    let mut encoder = app
-                        .gpu
-                        .device
-                        .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
+                    let mut encoder =
+                        app.gpu
+                            .device
+                            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                                label: Some("encoder"),
+                            });
 
                     {
                         let mut render_pass =
                             encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                                label: None,
+                                label: Some("render_pass"),
                                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                                     view: &view,
                                     resolve_target: None,
                                     ops: wgpu::Operations {
-                                        load: wgpu::LoadOp::Clear(wgpu::Color::GREEN),
+                                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
                                         store: wgpu::StoreOp::Store,
                                     },
                                 })],
@@ -93,9 +103,10 @@ impl ApplicationHandler for App {
                                 occlusion_query_set: None,
                             });
                         render_pass.set_pipeline(&app.gpu.render_pipeline);
-                        render_pass.draw(0..3, 0..1);
+                        render_pass.draw(0..4, 0..1);
                     }
                     app.gpu.queue.submit(Some(encoder.finish()));
+
                     frame.present();
 
                     // Queue a RedrawRequested event.
@@ -107,7 +118,51 @@ impl ApplicationHandler for App {
                 }
                 // else nothing to do yet
             }
+            WindowEvent::Focused(focused) => {
+                if let Some(app) = self.app.as_mut() {
+                    app.focused = focused;
+                    if !focused {
+                        // Make sure the mouse button is considered Released
+                        // when the Window looses focus, as it is impossible to
+                        // catch the release event when the user clicked off.
+                        app.left_mouse = ElementState::Released;
+                    }
+                }
+            }
             _ => (),
+        }
+    }
+
+    fn device_event(
+        &mut self,
+        _event_loop: &winit::event_loop::ActiveEventLoop,
+        device_id: winit::event::DeviceId,
+        event: DeviceEvent,
+    ) {
+        match event {
+            DeviceEvent::MouseWheel { delta } => {
+                if let Some(app) = self.app.as_ref() {
+                    if app.focused {
+                        println!("{:?} MouseWheel delta: {:?}", device_id, delta);
+                    }
+                }
+            }
+            DeviceEvent::MouseMotion { delta } => {
+                if let Some(app) = self.app.as_ref() {
+                    if app.focused && app.left_mouse == ElementState::Pressed {
+                        println!("{:?} MouseMotion delta: {:?}", device_id, delta);
+                    }
+                }
+            }
+            DeviceEvent::Button { button, state } => {
+                if let Some(app) = self.app.as_mut() {
+                    if button == 0 {
+                        app.left_mouse = state;
+                    }
+                    println!("{:?} {:?}", button, state);
+                }
+            }
+            _ => {}
         }
     }
 }
@@ -159,13 +214,13 @@ impl Wgpu {
 
         // Load the shaders
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: None,
+            label: Some("shader"),
             source: wgpu::ShaderSource::Wgsl(Cow::Borrowed(include_str!("shader.wgsl"))),
         });
 
         // Pipeline
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: None,
+            label: Some("pipeline_layout"),
             bind_group_layouts: &[],
             push_constant_ranges: &[],
         });
@@ -174,7 +229,7 @@ impl Wgpu {
         let swapchain_format = swapchain_capabilities.formats[0];
 
         let render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: None,
+            label: Some("render_pipeline_descriptor"),
             layout: Some(&pipeline_layout),
             vertex: wgpu::VertexState {
                 module: &shader,
@@ -188,7 +243,10 @@ impl Wgpu {
                 targets: &[Some(swapchain_format.into())],
                 compilation_options: Default::default(),
             }),
-            primitive: wgpu::PrimitiveState::default(),
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleStrip,
+                ..wgpu::PrimitiveState::default()
+            },
             depth_stencil: None,
             multisample: wgpu::MultisampleState::default(),
             multiview: None,
