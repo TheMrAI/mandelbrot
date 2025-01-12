@@ -1,6 +1,8 @@
 use std::{borrow::Cow, sync::Arc};
 
-use wgpu::{Device, Queue, RenderPipeline, Surface};
+use wgpu::{
+    BindGroup, BindGroupEntry, BufferBinding, BufferUsages, Device, Queue, RenderPipeline, Surface,
+};
 use winit::{
     application::ApplicationHandler,
     event::{DeviceEvent, ElementState, WindowEvent},
@@ -79,13 +81,27 @@ impl ApplicationHandler for App {
                     let view = frame
                         .texture
                         .create_view(&wgpu::TextureViewDescriptor::default());
+
+                    // const upper_left = vec2f(-1.2, 0.35);
+                    // const lower_right = vec2f(-1.0, 0.2);
+                    // const width = lower_right.x - upper_left.x;
+                    // const height = upper_left.y - lower_right.y;
+                    // const bounds = vec2f(1024.0, 768.0);
+                    app.gpu.queue.write_buffer(
+                        &app.gpu.uniform_buffer,
+                        0,
+                        &[-1.2f32, 0.35, -1.0, 0.2, 0.2, 0.15, 1024.0, 768.0]
+                            .iter()
+                            .flat_map(|entry| entry.to_ne_bytes())
+                            .collect::<Vec<u8>>(),
+                    );
+
                     let mut encoder =
                         app.gpu
                             .device
                             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
                                 label: Some("encoder"),
                             });
-
                     {
                         let mut render_pass =
                             encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -103,6 +119,7 @@ impl ApplicationHandler for App {
                                 occlusion_query_set: None,
                             });
                         render_pass.set_pipeline(&app.gpu.render_pipeline);
+                        render_pass.set_bind_group(0, &app.gpu.bind_group, &[]);
                         render_pass.draw(0..4, 0..1);
                     }
                     app.gpu.queue.submit(Some(encoder.finish()));
@@ -170,8 +187,10 @@ impl ApplicationHandler for App {
 struct Wgpu {
     pub surface: Surface<'static>,
     pub device: Device,
-    pub render_pipeline: RenderPipeline,
     pub queue: Queue,
+    pub bind_group: BindGroup,
+    pub uniform_buffer: wgpu::Buffer,
+    pub render_pipeline: RenderPipeline,
 }
 
 impl Wgpu {
@@ -218,10 +237,46 @@ impl Wgpu {
             source: wgpu::ShaderSource::Wgsl(Cow::Borrowed(include_str!("shader.wgsl"))),
         });
 
+        // Uniform buffer
+        let uniform_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("settings_uniform"),
+            size: 8 * size_of::<f32>() as u64,
+            usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+
+        let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("Bind group"),
+            entries: &[wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            }],
+        });
+
+        // Create bind group
+        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("Settings"),
+            layout: &bind_group_layout,
+            entries: &[BindGroupEntry {
+                binding: 0,
+                resource: wgpu::BindingResource::Buffer(BufferBinding {
+                    buffer: &uniform_buffer,
+                    offset: 0,
+                    size: None, // use whole buffer
+                }),
+            }],
+        });
+
         // Pipeline
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("pipeline_layout"),
-            bind_group_layouts: &[],
+            bind_group_layouts: &[&bind_group_layout],
             push_constant_ranges: &[],
         });
 
@@ -256,8 +311,10 @@ impl Wgpu {
         Wgpu {
             surface,
             device,
-            render_pipeline,
             queue,
+            bind_group,
+            uniform_buffer,
+            render_pipeline,
         }
     }
 }
