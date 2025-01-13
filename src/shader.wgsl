@@ -23,7 +23,6 @@ fn vs_main(@builtin(vertex_index) in_vertex_index: u32) -> @builtin(position) ve
 
 struct Settings {
     upper_left: vec2f,
-    lower_right: vec2f,
     width: f32,
     height: f32,
     window: vec2f,

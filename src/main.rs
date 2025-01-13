@@ -22,7 +22,11 @@ struct InnerApp {
     pub gpu: Wgpu,
 
     pub focused: bool,
+    pub in_window: bool,
     pub left_mouse: ElementState,
+    // The x, y coordinates of the screen center
+    pub center_point: (f32, f32),
+    pub zoom: f32,
 }
 
 impl InnerApp {
@@ -39,7 +43,10 @@ impl InnerApp {
             window,
             gpu,
             focused: true,
+            in_window: false,
             left_mouse: ElementState::Released,
+            center_point: (-0.5, 0.0),
+            zoom: 1.0,
         }
     }
 }
@@ -82,18 +89,36 @@ impl ApplicationHandler for App {
                         .texture
                         .create_view(&wgpu::TextureViewDescriptor::default());
 
-                    // const upper_left = vec2f(-1.2, 0.35);
+                    // let upper_left_x = app.center_point.0 - app.window.;
                     // const lower_right = vec2f(-1.0, 0.2);
                     // const width = lower_right.x - upper_left.x;
                     // const height = upper_left.y - lower_right.y;
                     // const bounds = vec2f(1024.0, 768.0);
+                    println!("{:?}", app.window.inner_size());
+                    // adjusted resolution for the given dpi setting on given screen
+                    let window_resolution = app.window.inner_size();
+                    let scale = (2.6 / window_resolution.height as f32) * (1.0 / app.zoom);
+                    let width = window_resolution.width as f32 * scale;
+                    let height = window_resolution.height as f32 * scale;
+                    let top_left = (
+                        app.center_point.0 - (width / 2.0),
+                        app.center_point.1 + (height / 2.0),
+                    );
+
                     app.gpu.queue.write_buffer(
                         &app.gpu.uniform_buffer,
                         0,
-                        &[-1.2f32, 0.35, -1.0, 0.2, 0.2, 0.15, 1024.0, 768.0]
-                            .iter()
-                            .flat_map(|entry| entry.to_ne_bytes())
-                            .collect::<Vec<u8>>(),
+                        &[
+                            top_left.0,
+                            top_left.1,
+                            width,
+                            height,
+                            window_resolution.width as f32,
+                            window_resolution.height as f32,
+                        ]
+                        .iter()
+                        .flat_map(|entry| entry.to_ne_bytes())
+                        .collect::<Vec<u8>>(),
                     );
 
                     let mut encoder =
@@ -146,6 +171,16 @@ impl ApplicationHandler for App {
                     }
                 }
             }
+            WindowEvent::CursorEntered { device_id: _ } => {
+                if let Some(app) = self.app.as_mut() {
+                    app.in_window = true;
+                }
+            }
+            WindowEvent::CursorLeft { device_id: _ } => {
+                if let Some(app) = self.app.as_mut() {
+                    app.in_window = false;
+                }
+            }
             _ => (),
         }
     }
@@ -158,16 +193,29 @@ impl ApplicationHandler for App {
     ) {
         match event {
             DeviceEvent::MouseWheel { delta } => {
-                if let Some(app) = self.app.as_ref() {
-                    if app.focused {
+                if let Some(app) = self.app.as_mut() {
+                    if app.focused && app.in_window {
                         println!("{:?} MouseWheel delta: {:?}", device_id, delta);
+                        match delta {
+                            winit::event::MouseScrollDelta::LineDelta(_, dy) => {
+                                app.zoom += dy / 10.0 as f32;
+                            }
+                            _ => panic!("Interface not yet supported"),
+                        }
+                        app.window.request_redraw();
                     }
                 }
             }
             DeviceEvent::MouseMotion { delta } => {
-                if let Some(app) = self.app.as_ref() {
-                    if app.focused && app.left_mouse == ElementState::Pressed {
+                if let Some(app) = self.app.as_mut() {
+                    if app.focused && app.in_window && app.left_mouse == ElementState::Pressed {
                         println!("{:?} MouseMotion delta: {:?}", device_id, delta);
+                        app.center_point = (
+                            app.center_point.0 + (delta.0 as f32 / 100.0),
+                            // invert y axis movement
+                            app.center_point.1 - (delta.1 as f32 / 100.0),
+                        );
+                        app.window.request_redraw();
                     }
                 }
             }
@@ -240,7 +288,7 @@ impl Wgpu {
         // Uniform buffer
         let uniform_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("settings_uniform"),
-            size: 8 * size_of::<f32>() as u64,
+            size: 6 * size_of::<f32>() as u64,
             usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
