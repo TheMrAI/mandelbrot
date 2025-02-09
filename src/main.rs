@@ -7,6 +7,7 @@ use winit::{
     application::ApplicationHandler,
     event::{DeviceEvent, ElementState, WindowEvent},
     event_loop::{ControlFlow, EventLoop},
+    keyboard::PhysicalKey,
     window::Window,
 };
 
@@ -24,6 +25,7 @@ struct InnerApp {
     pub focused: bool,
     pub in_window: bool,
     pub left_mouse: ElementState,
+    pub view_resetting: bool,
     // The x, y coordinates of the screen center
     pub center_point: (f32, f32),
     pub zoom: f32,
@@ -45,6 +47,7 @@ impl InnerApp {
             focused: true,
             in_window: false,
             left_mouse: ElementState::Released,
+            view_resetting: false,
             center_point: (-0.5, 0.0),
             zoom: 1.0,
         }
@@ -221,10 +224,33 @@ impl ApplicationHandler for App {
             }
             DeviceEvent::Button { button, state } => {
                 if let Some(app) = self.app.as_mut() {
+                    // Left mouse button
                     if button == 0 {
                         app.left_mouse = state;
                     }
                     println!("{:?} {:?}", button, state);
+                }
+            }
+            DeviceEvent::Key(raw_key_event) => {
+                if let Some(app) = self.app.as_mut() {
+                    if app.focused && app.in_window {
+                        // reset view
+                        if raw_key_event.physical_key
+                            == PhysicalKey::Code(winit::keyboard::KeyCode::KeyR)
+                        {
+                            if raw_key_event.state == ElementState::Pressed {
+                                // only if not already resetting
+                                if !app.view_resetting {
+                                    app.center_point = (-0.5, 0.0);
+                                    app.zoom = 1.0;
+                                    app.window.request_redraw();
+                                }
+                                app.view_resetting = true;
+                            } else {
+                                app.view_resetting = false;
+                            }
+                        }
+                    }
                 }
             }
             _ => {}
