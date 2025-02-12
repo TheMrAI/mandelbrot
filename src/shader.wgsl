@@ -23,8 +23,8 @@ fn vs_main(@builtin(vertex_index) in_vertex_index: u32) -> @builtin(position) ve
 
 struct Settings {
     upper_left: vec2f,
-    width: f32,
-    height: f32,
+    view_width: f32,
+    view_height: f32,
     window: vec2f,
 };
 
@@ -32,8 +32,12 @@ struct Settings {
 
 @fragment
 fn fs_main(@builtin(position) position: vec4f) -> @location(0) vec4<f32> {
-    let point = vec2f(settings.upper_left.x + (position.x * settings.width / settings.window.x),
-        settings.upper_left.y - (position.y * settings.height / settings.window.y));
+    // The position scaling codes might look a bit confusing.
+    // What we are doing is taking a pixel position and then transforming it into the mandelbrot space.
+    // This would be written down as (position.x / settings.window.x) * settings.view_width, which is equivalent
+    // to position.x * settings.view_width / settings.window.x. 
+    let point = vec2f(settings.upper_left.x + (position.x * settings.view_width / settings.window.x),
+        settings.upper_left.y - (position.y * settings.view_height / settings.window.y));
 
     let escapes_in = escape_time(point, 255u);
     let intensity: f32 = f32(255 - escapes_in) / 255.0;

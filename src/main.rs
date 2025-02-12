@@ -1,7 +1,8 @@
 use std::{borrow::Cow, sync::Arc};
 
 use wgpu::{
-    BindGroup, BindGroupEntry, BufferBinding, BufferUsages, Device, Queue, RenderPipeline, Surface,
+    Adapter, BindGroup, BindGroupEntry, BufferBinding, BufferUsages, Device, Queue, RenderPipeline,
+    Surface,
 };
 use winit::{
     application::ApplicationHandler,
@@ -92,20 +93,19 @@ impl ApplicationHandler for App {
                         .texture
                         .create_view(&wgpu::TextureViewDescriptor::default());
 
-                    // let upper_left_x = app.center_point.0 - app.window.;
-                    // const lower_right = vec2f(-1.0, 0.2);
-                    // const width = lower_right.x - upper_left.x;
-                    // const height = upper_left.y - lower_right.y;
-                    // const bounds = vec2f(1024.0, 768.0);
-                    println!("{:?}", app.window.inner_size());
-                    // adjusted resolution for the given dpi setting on given screen
+                    // Adjusted physical resolution for the given dpi setting on a given screen.
                     let window_resolution = app.window.inner_size();
-                    let scale = (2.6 / window_resolution.height as f32) * (1.0 / app.zoom);
-                    let width = window_resolution.width as f32 * scale;
-                    let height = window_resolution.height as f32 * scale;
+                    // We would like to have the whole mandelbrot set in view right from the start.
+                    // On the imaginary axis it is about 2.05 units tall.
+                    // Based on that and the physical resolution of the window the view into
+                    // the mandelbrot space is scaled appropriately.
+                    let view_height = 2.05 * (1.0 / app.zoom);
+                    let view_width = (window_resolution.width as f32
+                        / window_resolution.height as f32)
+                        * view_height;
                     let top_left = (
-                        app.center_point.0 - (width / 2.0),
-                        app.center_point.1 + (height / 2.0),
+                        app.center_point.0 - (view_width / 2.0),
+                        app.center_point.1 + (view_height / 2.0),
                     );
 
                     app.gpu.queue.write_buffer(
@@ -114,8 +114,8 @@ impl ApplicationHandler for App {
                         &[
                             top_left.0,
                             top_left.1,
-                            width,
-                            height,
+                            view_width,
+                            view_height,
                             window_resolution.width as f32,
                             window_resolution.height as f32,
                         ]
@@ -184,6 +184,17 @@ impl ApplicationHandler for App {
                     app.in_window = false;
                 }
             }
+            WindowEvent::Resized(inner_size) => {
+                // Recreate the surface texture according to the new inner physical resolution.
+                if let Some(app) = self.app.as_mut() {
+                    let config = app
+                        .gpu
+                        .surface
+                        .get_default_config(&app.gpu.adapter, inner_size.width, inner_size.height)
+                        .unwrap();
+                    app.gpu.surface.configure(&app.gpu.device, &config);
+                }
+            }
             _ => (),
         }
     }
@@ -201,7 +212,7 @@ impl ApplicationHandler for App {
                         println!("{:?} MouseWheel delta: {:?}", device_id, delta);
                         match delta {
                             winit::event::MouseScrollDelta::LineDelta(_, dy) => {
-                                app.zoom += dy / 10.0 as f32;
+                                app.zoom += dy / 10.0f32;
                             }
                             _ => panic!("Interface not yet supported"),
                         }
@@ -259,6 +270,7 @@ impl ApplicationHandler for App {
 }
 
 struct Wgpu {
+    pub adapter: Adapter,
     pub surface: Surface<'static>,
     pub device: Device,
     pub queue: Queue,
@@ -383,6 +395,7 @@ impl Wgpu {
         });
 
         Wgpu {
+            adapter,
             surface,
             device,
             queue,
