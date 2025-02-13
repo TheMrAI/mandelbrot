@@ -30,6 +30,7 @@ struct InnerApp {
     // The x, y coordinates of the screen center
     pub center_point: (f32, f32),
     pub zoom: f32,
+    pub zoom_step: f32,
 }
 
 impl InnerApp {
@@ -51,6 +52,7 @@ impl InnerApp {
             view_resetting: false,
             center_point: (-0.5, 0.0),
             zoom: 1.0,
+            zoom_step: 1.0,
         }
     }
 }
@@ -212,7 +214,17 @@ impl ApplicationHandler for App {
                         println!("{:?} MouseWheel delta: {:?}", device_id, delta);
                         match delta {
                             winit::event::MouseScrollDelta::LineDelta(_, dy) => {
-                                app.zoom += dy / 10.0f32;
+                                app.zoom_step += dy;
+                                // Limit zoom_step between [1, ~130_000].
+                                // Outside the ranges we will see only heavy pixelization
+                                // or calculation errors.
+                                app.zoom_step = app.zoom_step.clamp(1.0f32, 60f32);
+                                // Using a decently aggressive function for mapping the zoom_step
+                                // counter into actual zoom value.
+                                // The *0.01 is meant to widen the curve, while the 0.99 ensures
+                                // that using the initial zoom_step and zoom of 1.0, no jarring
+                                // transition occurs.
+                                app.zoom = app.zoom_step.powf(4.0) * 0.01 + 0.99;
                             }
                             _ => panic!("Interface not yet supported"),
                         }
@@ -224,10 +236,15 @@ impl ApplicationHandler for App {
                 if let Some(app) = self.app.as_mut() {
                     if app.focused && app.in_window && app.left_mouse == ElementState::Pressed {
                         println!("{:?} MouseMotion delta: {:?}", device_id, delta);
+                        // Scale the panning movement on the current zoom level.
+                        // The more zoomed in the view, the less should the camera pan
+                        // on movement.
+                        let x_delta = (delta.0 as f32 / 100.0) / app.zoom;
+                        let y_delta = (delta.1 as f32 / 100.0) / app.zoom;
                         app.center_point = (
-                            app.center_point.0 + (delta.0 as f32 / 100.0),
+                            app.center_point.0 + x_delta,
                             // invert y axis movement
-                            app.center_point.1 - (delta.1 as f32 / 100.0),
+                            app.center_point.1 - y_delta,
                         );
                         app.window.request_redraw();
                     }
