@@ -98,10 +98,10 @@ impl ApplicationHandler for App {
                     // Adjusted physical resolution for the given dpi setting on a given screen.
                     let window_resolution = app.window.inner_size();
                     // We would like to have the whole mandelbrot set in view right from the start.
-                    // On the imaginary axis it is about 2.05 units tall.
+                    // On the imaginary axis it is about 2.3 units tall.
                     // Based on that and the physical resolution of the window the view into
                     // the mandelbrot space is scaled appropriately.
-                    let view_height = 2.05 * (1.0 / app.zoom);
+                    let view_height = 2.3 * (1.0 / app.zoom);
                     let view_width = (window_resolution.width as f32
                         / window_resolution.height as f32)
                         * view_height;

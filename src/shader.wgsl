@@ -40,7 +40,7 @@ fn fs_main(@builtin(position) position: vec4f) -> @location(0) vec4<f32> {
         settings.upper_left.y - (position.y * settings.view_height / settings.window.y));
 
     let escapes_in = escape_time(point, 255u);
-    let intensity: f32 = f32(255 - escapes_in) / 255.0;
+    let intensity: f32 = f32(escapes_in) / 255.0;
     return vec4f(intensity, intensity, intensity, 1.0);
 }
 
