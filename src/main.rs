@@ -28,7 +28,6 @@ struct InnerApp {
     pub focused: bool,
     pub in_window: bool,
     pub left_mouse: ElementState,
-    pub view_resetting: bool,
     // The x, y coordinates of the screen center
     pub center_point: (f32, f32),
     pub zoom: f32,
@@ -52,7 +51,6 @@ impl InnerApp {
             focused: true,
             in_window: false,
             left_mouse: ElementState::Released,
-            view_resetting: false,
             center_point: (-0.5, 0.0),
             zoom: 1.0,
             zoom_step: 1.0,
@@ -279,16 +277,10 @@ impl ApplicationHandler for App {
                         // reset view
                         match raw_key_event.physical_key {
                             PhysicalKey::Code(winit::keyboard::KeyCode::KeyR) => {
-                                if raw_key_event.state == ElementState::Pressed {
-                                    // only if not already resetting
-                                    if !app.view_resetting {
-                                        app.center_point = (-0.5, 0.0);
-                                        app.zoom = 1.0;
-                                        app.window.request_redraw();
-                                    }
-                                    app.view_resetting = true;
-                                } else {
-                                    app.view_resetting = false;
+                                if raw_key_event.state == ElementState::Released {
+                                    app.center_point = (-0.5, 0.0);
+                                    app.zoom = 1.0;
+                                    app.window.request_redraw();
                                 }
                             }
                             PhysicalKey::Code(winit::keyboard::KeyCode::KeyG) => {
