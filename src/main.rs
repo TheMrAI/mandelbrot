@@ -21,6 +21,8 @@ struct App {
 
 struct InnerApp {
     pub window: Arc<Window>,
+
+    pub render_with_gpu: bool,
     pub gpu: Wgpu,
 
     pub focused: bool,
@@ -45,6 +47,7 @@ impl InnerApp {
 
         InnerApp {
             window,
+            render_with_gpu: true,
             gpu,
             focused: true,
             in_window: false,
@@ -85,76 +88,76 @@ impl ApplicationHandler for App {
 
                 // Draw.
                 if let Some(app) = self.app.as_ref() {
-                    let frame = app
-                        .gpu
-                        .surface
-                        .get_current_texture()
-                        .expect("Failed to acquire next swap-chain texture.");
+                    if app.render_with_gpu {
+                        let frame = app
+                            .gpu
+                            .surface
+                            .get_current_texture()
+                            .expect("Failed to acquire next swap-chain texture.");
 
-                    let view = frame
-                        .texture
-                        .create_view(&wgpu::TextureViewDescriptor::default());
+                        let view = frame
+                            .texture
+                            .create_view(&wgpu::TextureViewDescriptor::default());
 
-                    // Adjusted physical resolution for the given dpi setting on a given screen.
-                    let window_resolution = app.window.inner_size();
-                    // We would like to have the whole mandelbrot set in view right from the start.
-                    // On the imaginary axis it is about 2.3 units tall.
-                    // Based on that and the physical resolution of the window the view into
-                    // the mandelbrot space is scaled appropriately.
-                    let view_height = 2.3 * (1.0 / app.zoom);
-                    let view_width = (window_resolution.width as f32
-                        / window_resolution.height as f32)
-                        * view_height;
-                    let top_left = (
-                        app.center_point.0 - (view_width / 2.0),
-                        app.center_point.1 + (view_height / 2.0),
-                    );
+                        // Adjusted physical resolution for the given dpi setting on a given screen.
+                        let window_resolution = app.window.inner_size();
+                        // We would like to have the whole mandelbrot set in view right from the start.
+                        // On the imaginary axis it is about 2.3 units tall.
+                        // Based on that and the physical resolution of the window the view into
+                        // the mandelbrot space is scaled appropriately.
+                        let view_height = 2.3 * (1.0 / app.zoom);
+                        let view_width = (window_resolution.width as f32
+                            / window_resolution.height as f32)
+                            * view_height;
+                        let top_left = (
+                            app.center_point.0 - (view_width / 2.0),
+                            app.center_point.1 + (view_height / 2.0),
+                        );
 
-                    app.gpu.queue.write_buffer(
-                        &app.gpu.uniform_buffer,
-                        0,
-                        &[
-                            top_left.0,
-                            top_left.1,
-                            view_width,
-                            view_height,
-                            window_resolution.width as f32,
-                            window_resolution.height as f32,
-                        ]
-                        .iter()
-                        .flat_map(|entry| entry.to_ne_bytes())
-                        .collect::<Vec<u8>>(),
-                    );
+                        app.gpu.queue.write_buffer(
+                            &app.gpu.uniform_buffer,
+                            0,
+                            &[
+                                top_left.0,
+                                top_left.1,
+                                view_width,
+                                view_height,
+                                window_resolution.width as f32,
+                                window_resolution.height as f32,
+                            ]
+                            .iter()
+                            .flat_map(|entry| entry.to_ne_bytes())
+                            .collect::<Vec<u8>>(),
+                        );
 
-                    let mut encoder =
-                        app.gpu
-                            .device
-                            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                        let mut encoder = app.gpu.device.create_command_encoder(
+                            &wgpu::CommandEncoderDescriptor {
                                 label: Some("encoder"),
-                            });
-                    {
-                        let mut render_pass =
-                            encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                                label: Some("render_pass"),
-                                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                                    view: &view,
-                                    resolve_target: None,
-                                    ops: wgpu::Operations {
-                                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
-                                        store: wgpu::StoreOp::Store,
-                                    },
-                                })],
-                                depth_stencil_attachment: None,
-                                timestamp_writes: None,
-                                occlusion_query_set: None,
-                            });
-                        render_pass.set_pipeline(&app.gpu.render_pipeline);
-                        render_pass.set_bind_group(0, &app.gpu.bind_group, &[]);
-                        render_pass.draw(0..4, 0..1);
-                    }
-                    app.gpu.queue.submit(Some(encoder.finish()));
+                            },
+                        );
+                        {
+                            let mut render_pass =
+                                encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                                    label: Some("render_pass"),
+                                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                                        view: &view,
+                                        resolve_target: None,
+                                        ops: wgpu::Operations {
+                                            load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                                            store: wgpu::StoreOp::Store,
+                                        },
+                                    })],
+                                    depth_stencil_attachment: None,
+                                    timestamp_writes: None,
+                                    occlusion_query_set: None,
+                                });
+                            render_pass.set_pipeline(&app.gpu.render_pipeline);
+                            render_pass.set_bind_group(0, &app.gpu.bind_group, &[]);
+                            render_pass.draw(0..4, 0..1);
+                        }
+                        app.gpu.queue.submit(Some(encoder.finish()));
 
-                    frame.present();
+                        frame.present();
 
                     // Queue a RedrawRequested event.
                     //
@@ -162,6 +165,9 @@ impl ApplicationHandler for App {
                     // applications which do not always need to. Applications that redraw continuously
                     // can render here instead.
                     // self.window.as_ref().unwrap().request_redraw();
+                    } else {
+                        // TODO: Render with CPU
+                    }
                 }
                 // else nothing to do yet
             }
@@ -189,12 +195,20 @@ impl ApplicationHandler for App {
             WindowEvent::Resized(inner_size) => {
                 // Recreate the surface texture according to the new inner physical resolution.
                 if let Some(app) = self.app.as_mut() {
-                    let config = app
-                        .gpu
-                        .surface
-                        .get_default_config(&app.gpu.adapter, inner_size.width, inner_size.height)
-                        .unwrap();
-                    app.gpu.surface.configure(&app.gpu.device, &config);
+                    if app.render_with_gpu {
+                        let config = app
+                            .gpu
+                            .surface
+                            .get_default_config(
+                                &app.gpu.adapter,
+                                inner_size.width,
+                                inner_size.height,
+                            )
+                            .unwrap();
+                        app.gpu.surface.configure(&app.gpu.device, &config);
+                    } else {
+                        // TODO: CPU based here
+                    }
                 }
             }
             _ => (),
@@ -263,20 +277,31 @@ impl ApplicationHandler for App {
                 if let Some(app) = self.app.as_mut() {
                     if app.focused && app.in_window {
                         // reset view
-                        if raw_key_event.physical_key
-                            == PhysicalKey::Code(winit::keyboard::KeyCode::KeyR)
-                        {
-                            if raw_key_event.state == ElementState::Pressed {
-                                // only if not already resetting
-                                if !app.view_resetting {
-                                    app.center_point = (-0.5, 0.0);
-                                    app.zoom = 1.0;
-                                    app.window.request_redraw();
+                        match raw_key_event.physical_key {
+                            PhysicalKey::Code(winit::keyboard::KeyCode::KeyR) => {
+                                if raw_key_event.state == ElementState::Pressed {
+                                    // only if not already resetting
+                                    if !app.view_resetting {
+                                        app.center_point = (-0.5, 0.0);
+                                        app.zoom = 1.0;
+                                        app.window.request_redraw();
+                                    }
+                                    app.view_resetting = true;
+                                } else {
+                                    app.view_resetting = false;
                                 }
-                                app.view_resetting = true;
-                            } else {
-                                app.view_resetting = false;
                             }
+                            PhysicalKey::Code(winit::keyboard::KeyCode::KeyG) => {
+                                if raw_key_event.state == ElementState::Released {
+                                    app.render_with_gpu = true;
+                                }
+                            }
+                            PhysicalKey::Code(winit::keyboard::KeyCode::KeyC) => {
+                                if raw_key_event.state == ElementState::Released {
+                                    app.render_with_gpu = false;
+                                }
+                            }
+                            _ => (), // do nothing
                         }
                     }
                 }
