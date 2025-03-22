@@ -1,7 +1,4 @@
-use image::codecs::png::PngEncoder;
-use image::ImageEncoder;
 use num::Complex;
-use std::fs::File;
 
 fn escape_time(c: Complex<f64>, limit: usize) -> Option<usize> {
     let mut z = Complex::<f64>::default();
@@ -51,23 +48,6 @@ fn render(
     }
 }
 
-fn write_image(
-    filename: &str,
-    pixels: &[u8],
-    bounds: (usize, usize),
-) -> Result<(), std::io::Error> {
-    let output = File::create(filename)?;
-
-    let encoder = PngEncoder::new(output);
-    let _ = encoder.write_image(
-        pixels,
-        bounds.0 as u32,
-        bounds.1 as u32,
-        image::ExtendedColorType::L8,
-    );
-    Ok(())
-}
-
 pub fn run() {
     let upper_left = Complex { re: -1.2, im: 0.35 };
     let lower_right = Complex { re: -1.0, im: 0.2 };
@@ -95,5 +75,4 @@ pub fn run() {
         })
         .unwrap();
     }
-    let _ = write_image("first_mandi.png", &pixels, bounds);
 }
