@@ -63,6 +63,25 @@ impl InnerApp {
     }
 }
 
+fn center_to_start_conditions(
+    view_center: (f32, f32),
+    zoom: f32,
+    window_resolution: (u32, u32),
+) -> ((f32, f32), (f32, f32)) {
+    // We would like to have the whole mandelbrot set in view right from the start.
+    // On the imaginary axis it is about 2.3 units tall.
+    // Based on that and the physical resolution of the window the view into
+    // the mandelbrot space is scaled appropriately.
+    let view_height = 2.3 * (1.0 / zoom);
+    let view_width = (window_resolution.0 as f32 / window_resolution.1 as f32) * view_height;
+    let top_left = (
+        view_center.0 - (view_width / 2.0),
+        view_center.1 + (view_height / 2.0),
+    );
+
+    (top_left, (view_width, view_height))
+}
+
 impl ApplicationHandler for App {
     fn resumed(&mut self, event_loop: &winit::event_loop::ActiveEventLoop) {
         // The Window should be created in this call, because the winit documentation states that this
@@ -104,27 +123,21 @@ impl ApplicationHandler for App {
 
                         // Adjusted physical resolution for the given dpi setting on a given screen.
                         let window_resolution = app.window.inner_size();
-                        // We would like to have the whole mandelbrot set in view right from the start.
-                        // On the imaginary axis it is about 2.3 units tall.
-                        // Based on that and the physical resolution of the window the view into
-                        // the mandelbrot space is scaled appropriately.
-                        let view_height = 2.3 * (1.0 / app.zoom);
-                        let view_width = (window_resolution.width as f32
-                            / window_resolution.height as f32)
-                            * view_height;
-                        let top_left = (
-                            app.center_point.0 - (view_width / 2.0),
-                            app.center_point.1 + (view_height / 2.0),
+
+                        let (upper_left, view_resolution) = center_to_start_conditions(
+                            app.center_point,
+                            app.zoom,
+                            (window_resolution.width, window_resolution.height),
                         );
 
                         app.gpu.queue.write_buffer(
                             &app.gpu.uniform_buffer,
                             0,
                             &[
-                                top_left.0,
-                                top_left.1,
-                                view_width,
-                                view_height,
+                                upper_left.0,
+                                upper_left.1,
+                                view_resolution.0,
+                                view_resolution.1,
                                 window_resolution.width as f32,
                                 window_resolution.height as f32,
                             ]
@@ -170,19 +183,24 @@ impl ApplicationHandler for App {
                     // self.window.as_ref().unwrap().request_redraw();
                     } else {
                         let mut buffer = app.cpu.surface.buffer_mut().unwrap();
+
                         let window_resolution = app.window.inner_size();
 
-                        let upper_left = Complex { re: -1.2, im: 0.35 };
-                        let lower_right = Complex { re: -1.0, im: 0.2 };
+                        let (top_left, view_resolution) = center_to_start_conditions(
+                            (app.center_point.0, app.center_point.1),
+                            app.zoom,
+                            (window_resolution.width, window_resolution.height),
+                        );
+                        let upper_left = Complex {
+                            re: top_left.0,
+                            im: top_left.1,
+                        };
 
                         cpu::render(
                             &mut buffer,
-                            (
-                                window_resolution.width as usize,
-                                window_resolution.height as usize,
-                            ),
                             upper_left,
-                            lower_right,
+                            view_resolution,
+                            (window_resolution.width, window_resolution.height),
                         );
 
                         buffer.present().unwrap();

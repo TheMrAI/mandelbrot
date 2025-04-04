@@ -17,8 +17,8 @@ impl Cpu {
     }
 }
 
-fn escape_time(c: Complex<f64>, limit: usize) -> Option<usize> {
-    let mut z = Complex::<f64>::default();
+fn escape_time(c: Complex<f32>, limit: usize) -> Option<usize> {
+    let mut z = Complex::<f32>::default();
 
     for i in 0..limit {
         if z.norm_sqr() >= 4.0 {
@@ -30,37 +30,44 @@ fn escape_time(c: Complex<f64>, limit: usize) -> Option<usize> {
     None
 }
 
-fn pixel_to_point(
-    bounds: (usize, usize),
-    pixel: (usize, usize),
-    upper_left: Complex<f64>,
-    lower_right: Complex<f64>,
-) -> Complex<f64> {
-    let (width, height) = (
-        lower_right.re - upper_left.re,
-        upper_left.im - lower_right.im,
-    );
+fn pixel_to_view(
+    pixel: (u32, u32),
+    upper_left: Complex<f32>,
+    view_resolution: (f32, f32),   // real and imaginary axes
+    window_resolution: (u32, u32), // x and y axes
+) -> Complex<f32> {
     Complex {
-        re: upper_left.re + pixel.0 as f64 * width / bounds.0 as f64,
-        im: upper_left.im - pixel.1 as f64 * height / bounds.1 as f64,
+        re: upper_left.re
+            + (pixel.0 as f32 * view_resolution.0 as f32 / window_resolution.0 as f32),
+        im: upper_left.im
+            - (pixel.1 as f32 * view_resolution.1 as f32 / window_resolution.1 as f32),
     }
 }
 
 pub fn render(
     pixels: &mut [u32],
-    bounds: (usize, usize),
-    upper_left: Complex<f64>,
-    lower_right: Complex<f64>,
+    upper_left: Complex<f32>,
+    view_resolution: (f32, f32),
+    window_resolution: (u32, u32),
 ) {
-    assert!(pixels.len() == bounds.0 * bounds.1);
+    assert!(pixels.len() == window_resolution.0 as usize * window_resolution.1 as usize);
 
-    for row in 0..bounds.1 {
-        for column in 0..bounds.0 {
-            let point = pixel_to_point(bounds, (column, row), upper_left, lower_right);
-            pixels[row * bounds.0 + column] = match escape_time(point, 255) {
+    for row in 0..window_resolution.1 {
+        for column in 0..window_resolution.0 {
+            let point = pixel_to_view(
+                (column, row),
+                upper_left,
+                view_resolution,
+                window_resolution,
+            );
+
+            let index = (row * window_resolution.0 + column) as usize;
+            pixels[index] = match escape_time(point, 255) {
                 None => 0,
                 Some(count) => {
                     let count = count as u32;
+                    // softbuffer data representation: https://docs.rs/softbuffer/latest/softbuffer/struct.Buffer.html#data-representation
+                    // Shifting in the escape time for all color (RGB) channels.
                     count << 16 | count << 8 | count
                 }
             }
