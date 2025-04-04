@@ -1,4 +1,21 @@
+use std::sync::Arc;
+
 use num::Complex;
+use winit::window::Window;
+
+pub struct Cpu {
+    pub context: softbuffer::Context<Arc<Window>>,
+    pub surface: softbuffer::Surface<Arc<Window>, Arc<Window>>,
+}
+
+impl Cpu {
+    pub fn new(window: Arc<Window>) -> Self {
+        let context = softbuffer::Context::new(Arc::clone(&window)).unwrap();
+        let surface = softbuffer::Surface::new(&context, window).unwrap();
+
+        Cpu { context, surface }
+    }
+}
 
 fn escape_time(c: Complex<f64>, limit: usize) -> Option<usize> {
     let mut z = Complex::<f64>::default();
@@ -29,8 +46,8 @@ fn pixel_to_point(
     }
 }
 
-fn render(
-    pixels: &mut [u8],
+pub fn render(
+    pixels: &mut [u32],
     bounds: (usize, usize),
     upper_left: Complex<f64>,
     lower_right: Complex<f64>,
@@ -42,37 +59,40 @@ fn render(
             let point = pixel_to_point(bounds, (column, row), upper_left, lower_right);
             pixels[row * bounds.0 + column] = match escape_time(point, 255) {
                 None => 0,
-                Some(count) => 255 - count as u8,
+                Some(count) => {
+                    let count = count as u32;
+                    count << 16 | count << 8 | count
+                }
             }
         }
     }
 }
 
-pub fn run() {
-    let upper_left = Complex { re: -1.2, im: 0.35 };
-    let lower_right = Complex { re: -1.0, im: 0.2 };
-    let mut pixels = vec![0; 4000 * 3000];
+// pub fn run() {
+//     let upper_left = Complex { re: -1.2, im: 0.35 };
+//     let lower_right = Complex { re: -1.0, im: 0.2 };
+//     let mut pixels = vec![0; 4000 * 3000];
 
-    let bounds = (4000, 3000);
-    let threads = 8;
-    let rows_per_band = bounds.1 / threads + 1;
+//     let bounds = (4000, 3000);
+//     let threads = 8;
+//     let rows_per_band = bounds.1 / threads + 1;
 
-    {
-        let bands: Vec<&mut [u8]> = pixels.chunks_mut(rows_per_band * bounds.0).collect();
-        crossbeam::scope(|spawner| {
-            for (i, band) in bands.into_iter().enumerate() {
-                let top = rows_per_band * i;
-                let height = band.len() / bounds.0;
-                let band_bounds = (bounds.0, height);
-                let band_upper_left = pixel_to_point(bounds, (0, top), upper_left, lower_right);
-                let band_lower_right =
-                    pixel_to_point(bounds, (bounds.0, top + height), upper_left, lower_right);
+//     {
+//         let bands: Vec<&mut [u8]> = pixels.chunks_mut(rows_per_band * bounds.0).collect();
+//         crossbeam::scope(|spawner| {
+//             for (i, band) in bands.into_iter().enumerate() {
+//                 let top = rows_per_band * i;
+//                 let height = band.len() / bounds.0;
+//                 let band_bounds = (bounds.0, height);
+//                 let band_upper_left = pixel_to_point(bounds, (0, top), upper_left, lower_right);
+//                 let band_lower_right =
+//                     pixel_to_point(bounds, (bounds.0, top + height), upper_left, lower_right);
 
-                spawner.spawn(move |_| {
-                    render(band, band_bounds, band_upper_left, band_lower_right);
-                });
-            }
-        })
-        .unwrap();
-    }
-}
+//                 spawner.spawn(move |_| {
+//                     render(band, band_bounds, band_upper_left, band_lower_right);
+//                 });
+//             }
+//         })
+//         .unwrap();
+//     }
+// }

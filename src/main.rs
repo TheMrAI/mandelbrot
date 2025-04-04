@@ -1,5 +1,6 @@
-use std::{borrow::Cow, sync::Arc};
+use std::{borrow::Cow, num::NonZeroU32, sync::Arc};
 
+use num::Complex;
 use wgpu::{
     Adapter, BindGroup, BindGroupEntry, BufferBinding, BufferUsages, Device, Queue, RenderPipeline,
     Surface,
@@ -13,6 +14,7 @@ use winit::{
 };
 
 mod cpu;
+use cpu::Cpu;
 
 #[derive(Default)]
 struct App {
@@ -24,6 +26,7 @@ struct InnerApp {
 
     pub render_with_gpu: bool,
     pub gpu: Wgpu,
+    pub cpu: Cpu,
 
     pub focused: bool,
     pub in_window: bool,
@@ -43,11 +46,13 @@ impl InnerApp {
 
         let window = Arc::new(event_loop.create_window(window_attributes).unwrap());
         let gpu = pollster::block_on(Wgpu::new(Arc::clone(&window)));
+        let cpu = Cpu::new(Arc::clone(&window));
 
         InnerApp {
             window,
-            render_with_gpu: true,
+            render_with_gpu: false, // TODO: temporarily set, restore to true
             gpu,
+            cpu,
             focused: true,
             in_window: false,
             left_mouse: ElementState::Released,
@@ -85,7 +90,7 @@ impl ApplicationHandler for App {
                 // the program to gracefully handle redraws requested by the OS.
 
                 // Draw.
-                if let Some(app) = self.app.as_ref() {
+                if let Some(app) = self.app.as_mut() {
                     if app.render_with_gpu {
                         let frame = app
                             .gpu
@@ -164,7 +169,23 @@ impl ApplicationHandler for App {
                     // can render here instead.
                     // self.window.as_ref().unwrap().request_redraw();
                     } else {
-                        // TODO: Render with CPU
+                        let mut buffer = app.cpu.surface.buffer_mut().unwrap();
+                        let window_resolution = app.window.inner_size();
+
+                        let upper_left = Complex { re: -1.2, im: 0.35 };
+                        let lower_right = Complex { re: -1.0, im: 0.2 };
+
+                        cpu::render(
+                            &mut buffer,
+                            (
+                                window_resolution.width as usize,
+                                window_resolution.height as usize,
+                            ),
+                            upper_left,
+                            lower_right,
+                        );
+
+                        buffer.present().unwrap();
                     }
                 }
                 // else nothing to do yet
@@ -205,7 +226,12 @@ impl ApplicationHandler for App {
                             .unwrap();
                         app.gpu.surface.configure(&app.gpu.device, &config);
                     } else {
-                        // TODO: CPU based here
+                        let window_resolution = app.window.inner_size();
+                        // TODO: handle softbuffer error
+                        let _ = app.cpu.surface.resize(
+                            NonZeroU32::new(window_resolution.width).unwrap(),
+                            NonZeroU32::new(window_resolution.height).unwrap(),
+                        );
                     }
                 }
             }
@@ -286,11 +312,34 @@ impl ApplicationHandler for App {
                             PhysicalKey::Code(winit::keyboard::KeyCode::KeyG) => {
                                 if raw_key_event.state == ElementState::Released {
                                     app.render_with_gpu = true;
+
+                                    let window_resolution = app.window.inner_size();
+                                    let config = app
+                                        .gpu
+                                        .surface
+                                        .get_default_config(
+                                            &app.gpu.adapter,
+                                            window_resolution.width,
+                                            window_resolution.height,
+                                        )
+                                        .unwrap();
+                                    app.gpu.surface.configure(&app.gpu.device, &config);
+
+                                    app.window.request_redraw();
                                 }
                             }
                             PhysicalKey::Code(winit::keyboard::KeyCode::KeyC) => {
                                 if raw_key_event.state == ElementState::Released {
                                     app.render_with_gpu = false;
+
+                                    let window_resolution = app.window.inner_size();
+                                    // TODO: handle softbuffer error
+                                    let _ = app.cpu.surface.resize(
+                                        NonZeroU32::new(window_resolution.width).unwrap(),
+                                        NonZeroU32::new(window_resolution.height).unwrap(),
+                                    );
+
+                                    app.window.request_redraw();
                                 }
                             }
                             _ => (), // do nothing
