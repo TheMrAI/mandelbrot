@@ -62,7 +62,7 @@ pub fn render(
             );
 
             let index = (row * window_resolution.0 + column) as usize;
-            pixels[index] = match escape_time(point, 255) {
+            pixels[index] = match escape_time(point, 256) {
                 None => 0,
                 Some(count) => {
                     let count = count as u32;

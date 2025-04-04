@@ -39,7 +39,7 @@ fn fs_main(@builtin(position) position: vec4f) -> @location(0) vec4<f32> {
     let point = vec2f(settings.upper_left.x + (position.x * settings.view_width / settings.window.x),
         settings.upper_left.y - (position.y * settings.view_height / settings.window.y));
 
-    let escapes_in = escape_time(point, 255u);
+    let escapes_in = escape_time(point, 256u);
     let intensity: f32 = f32(escapes_in) / 255.0;
     return vec4f(intensity, intensity, intensity, 1.0);
 }
@@ -58,5 +58,6 @@ fn escape_time(c: vec2f, limit: u32) -> u32 {
         }
         z = complex_square(z) + c;
     }
-    return 255u;
+    // for now zero signals that the iteration doesn't escape
+    return 0u;
 }
