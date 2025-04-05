@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{sync::Arc, thread};
 
 use num::Complex;
 use winit::window::Window;
@@ -52,54 +52,79 @@ pub fn render(
 ) {
     assert!(pixels.len() == window_resolution.0 as usize * window_resolution.1 as usize);
 
-    for row in 0..window_resolution.1 {
-        for column in 0..window_resolution.0 {
-            let point = pixel_to_view(
-                (column, row),
-                upper_left,
-                view_resolution,
-                window_resolution,
-            );
+    let thread_count = match std::thread::available_parallelism() {
+        Ok(parallelism) => parallelism.get(),
+        Err(_) => 4,
+    };
+    let band_height = std::cmp::max(window_resolution.1 / thread_count as u32, 50);
 
-            let index = (row * window_resolution.0 + column) as usize;
-            pixels[index] = match escape_time(point, 256) {
-                None => 0,
-                Some(count) => {
-                    let count = count as u32;
-                    // softbuffer data representation: https://docs.rs/softbuffer/latest/softbuffer/struct.Buffer.html#data-representation
-                    // Shifting in the escape time for all color (RGB) channels.
-                    count << 16 | count << 8 | count
+    {
+        let bands = pixels
+            .chunks_mut((window_resolution.0 * band_height) as usize)
+            .collect::<Vec<&mut [u32]>>();
+
+        fn render_chunk(
+            band: &mut [u32],
+            band_i: u32,
+            band_height: u32,
+            upper_left: Complex<f32>,
+            view_resolution: (f32, f32),
+            window_resolution: (u32, u32),
+        ) {
+            let start_row = band_height * band_i;
+            let height = band.len() as u32 / window_resolution.0;
+            let end_row = start_row + height;
+
+            for row in start_row..end_row {
+                for column in 0..window_resolution.0 {
+                    let point = pixel_to_view(
+                        (column, row),
+                        upper_left,
+                        view_resolution,
+                        window_resolution,
+                    );
+                    // within the given band
+                    let pixel_index = (row - start_row) * window_resolution.0 + column;
+                    band[pixel_index as usize] = match escape_time(point, 256) {
+                        None => 0,
+                        Some(count) => {
+                            let count = count as u32;
+                            // softbuffer data representation: https://docs.rs/softbuffer/latest/softbuffer/struct.Buffer.html#data-representation
+                            // Shifting in the escape time for all color (RGB) channels.
+                            count << 16 | count << 8 | count
+                        }
+                    }
                 }
             }
         }
+
+        thread::scope(|s| {
+            let last_band = bands.len() - 1;
+            for (band_i, band) in bands.into_iter().enumerate() {
+                // for all but the last chunk we spawn a new thread
+                // for the last we already have the current thread available
+                if band_i != last_band {
+                    s.spawn(move || {
+                        render_chunk(
+                            band,
+                            band_i as u32,
+                            band_height,
+                            upper_left,
+                            view_resolution,
+                            window_resolution,
+                        )
+                    });
+                } else {
+                    render_chunk(
+                        band,
+                        band_i as u32,
+                        band_height,
+                        upper_left,
+                        view_resolution,
+                        window_resolution,
+                    )
+                }
+            }
+        });
     }
 }
-
-// pub fn run() {
-//     let upper_left = Complex { re: -1.2, im: 0.35 };
-//     let lower_right = Complex { re: -1.0, im: 0.2 };
-//     let mut pixels = vec![0; 4000 * 3000];
-
-//     let bounds = (4000, 3000);
-//     let threads = 8;
-//     let rows_per_band = bounds.1 / threads + 1;
-
-//     {
-//         let bands: Vec<&mut [u8]> = pixels.chunks_mut(rows_per_band * bounds.0).collect();
-//         crossbeam::scope(|spawner| {
-//             for (i, band) in bands.into_iter().enumerate() {
-//                 let top = rows_per_band * i;
-//                 let height = band.len() / bounds.0;
-//                 let band_bounds = (bounds.0, height);
-//                 let band_upper_left = pixel_to_point(bounds, (0, top), upper_left, lower_right);
-//                 let band_lower_right =
-//                     pixel_to_point(bounds, (bounds.0, top + height), upper_left, lower_right);
-
-//                 spawner.spawn(move |_| {
-//                     render(band, band_bounds, band_upper_left, band_lower_right);
-//                 });
-//             }
-//         })
-//         .unwrap();
-//     }
-// }
