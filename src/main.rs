@@ -1,5 +1,6 @@
-use std::{borrow::Cow, sync::Arc};
+use std::{borrow::Cow, num::NonZeroU32, sync::Arc};
 
+use num::Complex;
 use wgpu::{
     Adapter, BindGroup, BindGroupEntry, BufferBinding, BufferUsages, Device, Queue, RenderPipeline,
     Surface,
@@ -13,6 +14,7 @@ use winit::{
 };
 
 mod cpu;
+use cpu::Cpu;
 
 #[derive(Default)]
 struct App {
@@ -24,6 +26,7 @@ struct InnerApp {
 
     pub render_with_gpu: bool,
     pub gpu: Wgpu,
+    pub cpu: Cpu,
 
     pub focused: bool,
     pub in_window: bool,
@@ -43,11 +46,13 @@ impl InnerApp {
 
         let window = Arc::new(event_loop.create_window(window_attributes).unwrap());
         let gpu = pollster::block_on(Wgpu::new(Arc::clone(&window)));
+        let cpu = Cpu::new(Arc::clone(&window));
 
         InnerApp {
             window,
             render_with_gpu: true,
             gpu,
+            cpu,
             focused: true,
             in_window: false,
             left_mouse: ElementState::Released,
@@ -56,6 +61,25 @@ impl InnerApp {
             zoom_step: 1.0,
         }
     }
+}
+
+fn center_to_start_conditions(
+    view_center: (f32, f32),
+    zoom: f32,
+    window_resolution: (u32, u32),
+) -> ((f32, f32), (f32, f32)) {
+    // We would like to have the whole mandelbrot set in view right from the start.
+    // On the imaginary axis it is about 2.3 units tall.
+    // Based on that and the physical resolution of the window the view into
+    // the mandelbrot space is scaled appropriately.
+    let view_height = 2.3 * (1.0 / zoom);
+    let view_width = (window_resolution.0 as f32 / window_resolution.1 as f32) * view_height;
+    let top_left = (
+        view_center.0 - (view_width / 2.0),
+        view_center.1 + (view_height / 2.0),
+    );
+
+    (top_left, (view_width, view_height))
 }
 
 impl ApplicationHandler for App {
@@ -85,7 +109,7 @@ impl ApplicationHandler for App {
                 // the program to gracefully handle redraws requested by the OS.
 
                 // Draw.
-                if let Some(app) = self.app.as_ref() {
+                if let Some(app) = self.app.as_mut() {
                     if app.render_with_gpu {
                         let frame = app
                             .gpu
@@ -99,27 +123,21 @@ impl ApplicationHandler for App {
 
                         // Adjusted physical resolution for the given dpi setting on a given screen.
                         let window_resolution = app.window.inner_size();
-                        // We would like to have the whole mandelbrot set in view right from the start.
-                        // On the imaginary axis it is about 2.3 units tall.
-                        // Based on that and the physical resolution of the window the view into
-                        // the mandelbrot space is scaled appropriately.
-                        let view_height = 2.3 * (1.0 / app.zoom);
-                        let view_width = (window_resolution.width as f32
-                            / window_resolution.height as f32)
-                            * view_height;
-                        let top_left = (
-                            app.center_point.0 - (view_width / 2.0),
-                            app.center_point.1 + (view_height / 2.0),
+
+                        let (upper_left, view_resolution) = center_to_start_conditions(
+                            app.center_point,
+                            app.zoom,
+                            (window_resolution.width, window_resolution.height),
                         );
 
                         app.gpu.queue.write_buffer(
                             &app.gpu.uniform_buffer,
                             0,
                             &[
-                                top_left.0,
-                                top_left.1,
-                                view_width,
-                                view_height,
+                                upper_left.0,
+                                upper_left.1,
+                                view_resolution.0,
+                                view_resolution.1,
                                 window_resolution.width as f32,
                                 window_resolution.height as f32,
                             ]
@@ -164,7 +182,28 @@ impl ApplicationHandler for App {
                     // can render here instead.
                     // self.window.as_ref().unwrap().request_redraw();
                     } else {
-                        // TODO: Render with CPU
+                        let mut buffer = app.cpu.surface.buffer_mut().unwrap();
+
+                        let window_resolution = app.window.inner_size();
+
+                        let (top_left, view_resolution) = center_to_start_conditions(
+                            (app.center_point.0, app.center_point.1),
+                            app.zoom,
+                            (window_resolution.width, window_resolution.height),
+                        );
+                        let upper_left = Complex {
+                            re: top_left.0,
+                            im: top_left.1,
+                        };
+
+                        cpu::render(
+                            &mut buffer,
+                            upper_left,
+                            view_resolution,
+                            (window_resolution.width, window_resolution.height),
+                        );
+
+                        buffer.present().unwrap();
                     }
                 }
                 // else nothing to do yet
@@ -205,7 +244,12 @@ impl ApplicationHandler for App {
                             .unwrap();
                         app.gpu.surface.configure(&app.gpu.device, &config);
                     } else {
-                        // TODO: CPU based here
+                        let window_resolution = app.window.inner_size();
+                        // TODO: handle softbuffer error
+                        let _ = app.cpu.surface.resize(
+                            NonZeroU32::new(window_resolution.width).unwrap(),
+                            NonZeroU32::new(window_resolution.height).unwrap(),
+                        );
                     }
                 }
             }
@@ -286,11 +330,34 @@ impl ApplicationHandler for App {
                             PhysicalKey::Code(winit::keyboard::KeyCode::KeyG) => {
                                 if raw_key_event.state == ElementState::Released {
                                     app.render_with_gpu = true;
+
+                                    let window_resolution = app.window.inner_size();
+                                    let config = app
+                                        .gpu
+                                        .surface
+                                        .get_default_config(
+                                            &app.gpu.adapter,
+                                            window_resolution.width,
+                                            window_resolution.height,
+                                        )
+                                        .unwrap();
+                                    app.gpu.surface.configure(&app.gpu.device, &config);
+
+                                    app.window.request_redraw();
                                 }
                             }
                             PhysicalKey::Code(winit::keyboard::KeyCode::KeyC) => {
                                 if raw_key_event.state == ElementState::Released {
                                     app.render_with_gpu = false;
+
+                                    let window_resolution = app.window.inner_size();
+                                    // TODO: handle softbuffer error
+                                    let _ = app.cpu.surface.resize(
+                                        NonZeroU32::new(window_resolution.width).unwrap(),
+                                        NonZeroU32::new(window_resolution.height).unwrap(),
+                                    );
+
+                                    app.window.request_redraw();
                                 }
                             }
                             _ => (), // do nothing
