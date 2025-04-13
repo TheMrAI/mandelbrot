@@ -50,7 +50,7 @@ impl InnerApp {
 
         InnerApp {
             window,
-            render_with_gpu: false, // TODO: temporarily set, restore to true
+            render_with_gpu: true,
             gpu,
             cpu,
             focused: true,

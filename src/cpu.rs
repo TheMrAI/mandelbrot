@@ -18,6 +18,7 @@ impl Cpu {
 }
 
 fn escape_time(c: Complex<f32>, limit: usize) -> Option<usize> {
+    assert!(limit <= 256, "Limit must not exceed 256.");
     let mut z = Complex::<f32>::default();
 
     for i in 0..limit {
