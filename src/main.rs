@@ -1,10 +1,7 @@
 use std::{borrow::Cow, num::NonZeroU32, sync::Arc};
 
 use num::Complex;
-use wgpu::{
-    Adapter, BindGroup, BindGroupEntry, BufferBinding, BufferUsages, Device, Queue, RenderPipeline,
-    Surface,
-};
+use wgpu::{Adapter, BindGroupEntry, BufferBinding, BufferUsages, Device, Queue};
 use winit::{
     application::ApplicationHandler,
     event::{DeviceEvent, ElementState, WindowEvent},
@@ -111,18 +108,137 @@ impl ApplicationHandler for App {
                 // Draw.
                 if let Some(app) = self.app.as_mut() {
                     if app.render_with_gpu {
-                        let frame = app
-                            .gpu
-                            .surface
-                            .get_current_texture()
-                            .expect("Failed to acquire next swap-chain texture.");
-
-                        let view = frame
-                            .texture
-                            .create_view(&wgpu::TextureViewDescriptor::default());
-
                         // Adjusted physical resolution for the given dpi setting on a given screen.
                         let window_resolution = app.window.inner_size();
+
+                        // PREPARE COMPUTE
+                        // allocate local texture representation
+                        let mut texture_data = vec![
+                            0u8;
+                            (window_resolution.width * window_resolution.height * 4)
+                                as usize
+                        ];
+                        // Load the shaders
+                        let shader =
+                            app.gpu
+                                .device
+                                .create_shader_module(wgpu::ShaderModuleDescriptor {
+                                    label: Some("shader"),
+                                    source: wgpu::ShaderSource::Wgsl(Cow::Borrowed(include_str!(
+                                        "shader.wgsl"
+                                    ))),
+                                });
+
+                        // Storage texture for calculation output
+                        let storage_texture =
+                            app.gpu.device.create_texture(&wgpu::TextureDescriptor {
+                                label: Some("mandelbrot result texture"),
+                                size: wgpu::Extent3d {
+                                    width: window_resolution.width,
+                                    height: window_resolution.height,
+                                    depth_or_array_layers: 1,
+                                },
+                                mip_level_count: 1,
+                                sample_count: 1,
+                                dimension: wgpu::TextureDimension::D2,
+                                format: wgpu::TextureFormat::Rgba8Unorm,
+                                usage: wgpu::TextureUsages::STORAGE_BINDING
+                                    | wgpu::TextureUsages::COPY_SRC,
+                                view_formats: &[],
+                            });
+                        // TODO why default?
+                        let storage_texture_view =
+                            storage_texture.create_view(&wgpu::TextureViewDescriptor::default());
+                        let output_staging_buffer =
+                            app.gpu.device.create_buffer(&wgpu::BufferDescriptor {
+                                label: Some("output staging buffer"),
+                                size: size_of_val(&texture_data[..]) as u64,
+                                usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+                                mapped_at_creation: false,
+                            });
+
+                        // Uniform buffer
+                        let uniform_buffer =
+                            app.gpu.device.create_buffer(&wgpu::BufferDescriptor {
+                                label: Some("settings_uniform"),
+                                size: 6 * size_of::<f32>() as u64,
+                                usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
+                                mapped_at_creation: false,
+                            });
+
+                        let bind_group_layout = app.gpu.device.create_bind_group_layout(
+                            &wgpu::BindGroupLayoutDescriptor {
+                                label: Some("Bind group layout"),
+                                entries: &[
+                                    wgpu::BindGroupLayoutEntry {
+                                        binding: 0,
+                                        visibility: wgpu::ShaderStages::COMPUTE,
+                                        ty: wgpu::BindingType::Buffer {
+                                            ty: wgpu::BufferBindingType::Uniform,
+                                            has_dynamic_offset: false,
+                                            min_binding_size: None,
+                                        },
+                                        count: None,
+                                    },
+                                    wgpu::BindGroupLayoutEntry {
+                                        binding: 1,
+                                        visibility: wgpu::ShaderStages::COMPUTE,
+                                        ty: wgpu::BindingType::StorageTexture {
+                                            access: wgpu::StorageTextureAccess::WriteOnly,
+                                            format: wgpu::TextureFormat::Rgba8Unorm,
+                                            view_dimension: wgpu::TextureViewDimension::D2,
+                                        },
+                                        count: None,
+                                    },
+                                ],
+                            },
+                        );
+
+                        // Create bind group
+                        let bind_group =
+                            app.gpu
+                                .device
+                                .create_bind_group(&wgpu::BindGroupDescriptor {
+                                    label: Some("bind group"),
+                                    layout: &bind_group_layout,
+                                    entries: &[
+                                        BindGroupEntry {
+                                            binding: 0,
+                                            resource: wgpu::BindingResource::Buffer(
+                                                BufferBinding {
+                                                    buffer: &uniform_buffer,
+                                                    offset: 0,
+                                                    size: None, // use whole buffer
+                                                },
+                                            ),
+                                        },
+                                        BindGroupEntry {
+                                            binding: 1,
+                                            resource: wgpu::BindingResource::TextureView(
+                                                &storage_texture_view,
+                                            ),
+                                        },
+                                    ],
+                                });
+
+                        // Pipeline
+                        let pipeline_layout = app.gpu.device.create_pipeline_layout(
+                            &wgpu::PipelineLayoutDescriptor {
+                                label: Some("pipeline_layout"),
+                                bind_group_layouts: &[&bind_group_layout],
+                                push_constant_ranges: &[],
+                            },
+                        );
+                        let compute_pipeline = app.gpu.device.create_compute_pipeline(
+                            &wgpu::ComputePipelineDescriptor {
+                                label: Some("mandelbrot compute pipeline"),
+                                layout: Some(&pipeline_layout),
+                                module: &shader,
+                                entry_point: Some("main"),
+                                compilation_options: Default::default(),
+                                cache: None,
+                            },
+                        );
 
                         let (upper_left, view_resolution) = center_to_start_conditions(
                             app.center_point,
@@ -131,7 +247,7 @@ impl ApplicationHandler for App {
                         );
 
                         app.gpu.queue.write_buffer(
-                            &app.gpu.uniform_buffer,
+                            &uniform_buffer,
                             0,
                             &[
                                 upper_left.0,
@@ -146,41 +262,82 @@ impl ApplicationHandler for App {
                             .collect::<Vec<u8>>(),
                         );
 
-                        let mut encoder = app.gpu.device.create_command_encoder(
+                        let mut command_encoder = app.gpu.device.create_command_encoder(
                             &wgpu::CommandEncoderDescriptor {
-                                label: Some("encoder"),
+                                label: Some("compute command encoder"),
                             },
                         );
                         {
-                            let mut render_pass =
-                                encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                                    label: Some("render_pass"),
-                                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                                        view: &view,
-                                        resolve_target: None,
-                                        ops: wgpu::Operations {
-                                            load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
-                                            store: wgpu::StoreOp::Store,
-                                        },
-                                    })],
-                                    depth_stencil_attachment: None,
+                            // run computation command
+                            let mut compute_pass =
+                                command_encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+                                    label: Some("compute pass"),
                                     timestamp_writes: None,
-                                    occlusion_query_set: None,
                                 });
-                            render_pass.set_pipeline(&app.gpu.render_pipeline);
-                            render_pass.set_bind_group(0, &app.gpu.bind_group, &[]);
-                            render_pass.draw(0..4, 0..1);
+                            compute_pass.set_bind_group(0, &bind_group, &[]);
+                            compute_pass.set_pipeline(&compute_pipeline);
+                            compute_pass.dispatch_workgroups(
+                                window_resolution.width,
+                                window_resolution.height,
+                                1,
+                            );
                         }
-                        app.gpu.queue.submit(Some(encoder.finish()));
 
-                        frame.present();
+                        // download texture command
+                        command_encoder.copy_texture_to_buffer(
+                            wgpu::TexelCopyTextureInfoBase {
+                                texture: &storage_texture,
+                                mip_level: 0,
+                                origin: wgpu::Origin3d::ZERO,
+                                aspect: wgpu::TextureAspect::All,
+                            },
+                            wgpu::TexelCopyBufferInfoBase {
+                                buffer: &output_staging_buffer,
+                                layout: wgpu::TexelCopyBufferLayout {
+                                    offset: 0,
+                                    bytes_per_row: Some(window_resolution.width * 4),
+                                    rows_per_image: Some(window_resolution.height),
+                                },
+                            },
+                            wgpu::Extent3d {
+                                width: window_resolution.width,
+                                height: window_resolution.height,
+                                depth_or_array_layers: 1,
+                            },
+                        );
+                        app.gpu.queue.submit(Some(command_encoder.finish()));
 
-                    // Queue a RedrawRequested event.
-                    //
-                    // You only need to call this if you've determined that you need to redraw in
-                    // applications which do not always need to. Applications that redraw continuously
-                    // can render here instead.
-                    // self.window.as_ref().unwrap().request_redraw();
+                        let buffer_slice = output_staging_buffer.slice(..);
+                        // TODO do you need to synchronize on the callback result or is it enough that your poll
+                        // has returned? for the time being I think it should be enough, but more investigation is
+                        // warranted
+                        buffer_slice.map_async(wgpu::MapMode::Read, move |_| {});
+                        app.gpu.device.poll(wgpu::PollType::Wait).unwrap();
+                        {
+                            let view = buffer_slice.get_mapped_range();
+                            texture_data.copy_from_slice(&view[..]);
+                        }
+                        output_staging_buffer.unmap();
+
+                        let mut buffer = app.cpu.surface.buffer_mut().unwrap();
+                        // this is rather nasty
+                        // softbuffer expects the value as ARGB while
+                        // the texture is produced as RGBA
+                        // TODO maybe we can do better?
+                        for row in 0..window_resolution.height {
+                            for column in 0..window_resolution.width {
+                                let texture_column_width = window_resolution.width * 4;
+                                let texture_index =
+                                    ((row * texture_column_width) + column * 4) as usize;
+                                let shifted = (texture_data[texture_index] as u32) << 16
+                                    | (texture_data[texture_index + 1] as u32) << 8
+                                    | (texture_data[texture_index + 2] as u32);
+                                let pixel_index = (row * window_resolution.width + column) as usize;
+                                buffer[pixel_index] = shifted;
+                            }
+                        }
+
+                        buffer.present().unwrap();
                     } else {
                         let mut buffer = app.cpu.surface.buffer_mut().unwrap();
 
@@ -229,20 +386,24 @@ impl ApplicationHandler for App {
                     app.in_window = false;
                 }
             }
-            WindowEvent::Resized(inner_size) => {
+            WindowEvent::Resized(window_resolution) => {
                 // Recreate the surface texture according to the new inner physical resolution.
                 if let Some(app) = self.app.as_mut() {
+                    let _ = app.cpu.surface.resize(
+                        NonZeroU32::new(window_resolution.width).unwrap(),
+                        NonZeroU32::new(window_resolution.height).unwrap(),
+                    );
                     if app.render_with_gpu {
-                        let config = app
-                            .gpu
-                            .surface
-                            .get_default_config(
-                                &app.gpu.adapter,
-                                inner_size.width,
-                                inner_size.height,
-                            )
-                            .unwrap();
-                        app.gpu.surface.configure(&app.gpu.device, &config);
+                        // let config = app
+                        //     .gpu
+                        //     .surface
+                        //     .get_default_config(
+                        //         &app.gpu.adapter,
+                        //         inner_size.width,
+                        //         inner_size.height,
+                        //     )
+                        //     .unwrap();
+                        // app.gpu.surface.configure(&app.gpu.device, &config);
                     } else {
                         let window_resolution = app.window.inner_size();
                         // TODO: handle softbuffer error
@@ -331,17 +492,17 @@ impl ApplicationHandler for App {
                                 if raw_key_event.state == ElementState::Released {
                                     app.render_with_gpu = true;
 
-                                    let window_resolution = app.window.inner_size();
-                                    let config = app
-                                        .gpu
-                                        .surface
-                                        .get_default_config(
-                                            &app.gpu.adapter,
-                                            window_resolution.width,
-                                            window_resolution.height,
-                                        )
-                                        .unwrap();
-                                    app.gpu.surface.configure(&app.gpu.device, &config);
+                                    // let window_resolution = app.window.inner_size();
+                                    // let config = app
+                                    //     .gpu
+                                    //     .surface
+                                    //     .get_default_config(
+                                    //         &app.gpu.adapter,
+                                    //         window_resolution.width,
+                                    //         window_resolution.height,
+                                    //     )
+                                    //     .unwrap();
+                                    // app.gpu.surface.configure(&app.gpu.device, &config);
 
                                     app.window.request_redraw();
                                 }
@@ -372,25 +533,19 @@ impl ApplicationHandler for App {
 
 struct Wgpu {
     pub adapter: Adapter,
-    pub surface: Surface<'static>,
     pub device: Device,
     pub queue: Queue,
-    pub bind_group: BindGroup,
-    pub uniform_buffer: wgpu::Buffer,
-    pub render_pipeline: RenderPipeline,
 }
 
 impl Wgpu {
     pub async fn new(window: Arc<Window>) -> Self {
         let instance = wgpu::Instance::default();
-        let window_size = window.inner_size();
-        let surface = instance.create_surface(window).unwrap();
         // Request an adapter that can support our surface
         let adapter = instance
             .request_adapter(&wgpu::RequestAdapterOptions {
                 power_preference: wgpu::PowerPreference::default(),
                 force_fallback_adapter: false,
-                compatible_surface: Some(&surface),
+                compatible_surface: None,
             })
             .await
             .expect("Failed to find an appropriate adapter");
@@ -400,107 +555,18 @@ impl Wgpu {
             .request_device(&wgpu::DeviceDescriptor {
                 label: None,
                 required_features: wgpu::Features::empty(),
-                // Make sure we use the texture resolution limits from the adapter, so we can support images the size of the swapchain.
-                required_limits: wgpu::Limits::downlevel_defaults()
-                    .using_resolution(adapter.limits()),
-                memory_hints: wgpu::MemoryHints::Performance,
+                required_limits: wgpu::Limits::downlevel_defaults(),
+                memory_hints: wgpu::MemoryHints::MemoryUsage,
                 trace: wgpu::Trace::Off,
             })
             .await
             .expect("Failed to create device");
         println!("Prepared device: {:?}", device);
 
-        // Configure surface
-        let config = surface
-            .get_default_config(&adapter, window_size.width, window_size.height)
-            .unwrap();
-        surface.configure(&device, &config);
-
-        // Load the shaders
-        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("shader"),
-            source: wgpu::ShaderSource::Wgsl(Cow::Borrowed(include_str!("shader.wgsl"))),
-        });
-
-        // Uniform buffer
-        let uniform_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("settings_uniform"),
-            size: 6 * size_of::<f32>() as u64,
-            usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
-
-        let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: Some("Bind group"),
-            entries: &[wgpu::BindGroupLayoutEntry {
-                binding: 0,
-                visibility: wgpu::ShaderStages::FRAGMENT,
-                ty: wgpu::BindingType::Buffer {
-                    ty: wgpu::BufferBindingType::Uniform,
-                    has_dynamic_offset: false,
-                    min_binding_size: None,
-                },
-                count: None,
-            }],
-        });
-
-        // Create bind group
-        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("Settings"),
-            layout: &bind_group_layout,
-            entries: &[BindGroupEntry {
-                binding: 0,
-                resource: wgpu::BindingResource::Buffer(BufferBinding {
-                    buffer: &uniform_buffer,
-                    offset: 0,
-                    size: None, // use whole buffer
-                }),
-            }],
-        });
-
-        // Pipeline
-        let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some("pipeline_layout"),
-            bind_group_layouts: &[&bind_group_layout],
-            push_constant_ranges: &[],
-        });
-
-        let swapchain_capabilities = surface.get_capabilities(&adapter);
-        let swapchain_format = swapchain_capabilities.formats[0];
-
-        let render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("render_pipeline_descriptor"),
-            layout: Some(&pipeline_layout),
-            vertex: wgpu::VertexState {
-                module: &shader,
-                entry_point: Some("vs_main"),
-                buffers: &[],
-                compilation_options: Default::default(),
-            },
-            fragment: Some(wgpu::FragmentState {
-                module: &shader,
-                entry_point: Some("fs_main"),
-                targets: &[Some(swapchain_format.into())],
-                compilation_options: Default::default(),
-            }),
-            primitive: wgpu::PrimitiveState {
-                topology: wgpu::PrimitiveTopology::TriangleStrip,
-                ..wgpu::PrimitiveState::default()
-            },
-            depth_stencil: None,
-            multisample: wgpu::MultisampleState::default(),
-            multiview: None,
-            cache: None, // on some platforms it may be good to use such a cache to reduce shader compilation times, otherwise it is handled by most
-        });
-
         Wgpu {
             adapter,
-            surface,
             device,
             queue,
-            bind_group,
-            uniform_buffer,
-            render_pipeline,
         }
     }
 }
