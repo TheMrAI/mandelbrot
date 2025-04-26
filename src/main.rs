@@ -47,37 +47,24 @@ impl ApplicationHandler for App {
 
                 // Draw.
                 if let Some(app) = self.app.as_mut() {
+                    let mut buffer = app.surface.buffer_mut().unwrap();
+
+                    let window_resolution = app.window.inner_size();
+
+                    let (top_left, view_resolution) = center_to_start_conditions(
+                        &app.view_center_point,
+                        app.zoom,
+                        &window_resolution,
+                    );
+
                     if app.render_with_gpu {
-                        let mut buffer = app.surface.buffer_mut().unwrap();
-
-                        // Adjusted physical resolution for the given dpi setting on a given screen.
-                        let window_resolution = app.window.inner_size();
-
-                        let (top_left, view_resolution) = center_to_start_conditions(
-                            &app.view_center_point,
-                            app.zoom,
-                            &window_resolution,
-                        );
-
                         app.gpu
                             .render(&mut buffer, top_left, &view_resolution, &window_resolution);
-
-                        buffer.present().unwrap();
                     } else {
-                        let mut buffer = app.surface.buffer_mut().unwrap();
-
-                        let window_resolution = app.window.inner_size();
-
-                        let (top_left, view_resolution) = center_to_start_conditions(
-                            &app.view_center_point,
-                            app.zoom,
-                            &window_resolution,
-                        );
-
                         cpu::render(&mut buffer, top_left, &view_resolution, &window_resolution);
-
-                        buffer.present().unwrap();
                     }
+
+                    buffer.present().unwrap();
                 }
                 // else nothing to do yet
             }
