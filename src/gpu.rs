@@ -1,5 +1,6 @@
 use std::borrow::Cow;
 
+use num::Complex;
 use wgpu::{BindGroupEntry, BufferBinding, BufferUsages, Device, Queue};
 
 pub struct Wgpu {
@@ -39,7 +40,7 @@ impl Wgpu {
     pub fn render(
         &mut self,
         buffer: &mut [u32],
-        upper_left: (f32, f32),
+        upper_left: Complex<f32>,
         view_resolution: (f32, f32),
         window_resolution: &winit::dpi::PhysicalSize<u32>,
     ) {
@@ -159,8 +160,8 @@ impl Wgpu {
             &uniform_buffer,
             0,
             &[
-                upper_left.0,
-                upper_left.1,
+                upper_left.re,
+                upper_left.im,
                 view_resolution.0,
                 view_resolution.1,
                 window_resolution.width as f32,

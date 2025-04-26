@@ -29,8 +29,8 @@ struct InnerApp {
     pub focused: bool,
     pub in_window: bool,
     pub left_mouse: ElementState,
-    // The x, y coordinates of the screen center
-    pub center_point: (f32, f32),
+    // The re, im coordinates of the screen center in the mandelbrot space.
+    pub view_center_point: Complex<f32>,
     pub zoom: f32,
     pub zoom_step: f32,
 }
@@ -58,7 +58,7 @@ impl InnerApp {
             focused: true,
             in_window: false,
             left_mouse: ElementState::Released,
-            center_point: (-0.5, 0.0),
+            view_center_point: Complex::new(-0.5, 0.0),
             zoom: 1.0,
             zoom_step: 1.0,
         }
@@ -66,19 +66,19 @@ impl InnerApp {
 }
 
 fn center_to_start_conditions(
-    view_center: (f32, f32),
+    view_center: Complex<f32>,
     zoom: f32,
     window_resolution: (u32, u32),
-) -> ((f32, f32), (f32, f32)) {
+) -> (Complex<f32>, (f32, f32)) {
     // We would like to have the whole mandelbrot set in view right from the start.
     // On the imaginary axis it is about 2.3 units tall.
     // Based on that and the physical resolution of the window the view into
     // the mandelbrot space is scaled appropriately.
     let view_height = 2.3 * (1.0 / zoom);
     let view_width = (window_resolution.0 as f32 / window_resolution.1 as f32) * view_height;
-    let top_left = (
-        view_center.0 - (view_width / 2.0),
-        view_center.1 + (view_height / 2.0),
+    let top_left = Complex::new(
+        view_center.re - (view_width / 2.0),
+        view_center.im + (view_height / 2.0),
     );
 
     (top_left, (view_width, view_height))
@@ -118,18 +118,14 @@ impl ApplicationHandler for App {
                         // Adjusted physical resolution for the given dpi setting on a given screen.
                         let window_resolution = app.window.inner_size();
 
-                        let (upper_left, view_resolution) = center_to_start_conditions(
-                            app.center_point,
+                        let (top_left, view_resolution) = center_to_start_conditions(
+                            app.view_center_point,
                             app.zoom,
                             (window_resolution.width, window_resolution.height),
                         );
 
-                        app.gpu.render(
-                            &mut buffer,
-                            upper_left,
-                            view_resolution,
-                            &window_resolution,
-                        );
+                        app.gpu
+                            .render(&mut buffer, top_left, view_resolution, &window_resolution);
 
                         buffer.present().unwrap();
                     } else {
@@ -138,18 +134,14 @@ impl ApplicationHandler for App {
                         let window_resolution = app.window.inner_size();
 
                         let (top_left, view_resolution) = center_to_start_conditions(
-                            (app.center_point.0, app.center_point.1),
+                            app.view_center_point,
                             app.zoom,
                             (window_resolution.width, window_resolution.height),
                         );
-                        let upper_left = Complex {
-                            re: top_left.0,
-                            im: top_left.1,
-                        };
 
                         cpu::render(
                             &mut buffer,
-                            upper_left,
+                            top_left,
                             view_resolution,
                             (window_resolution.width, window_resolution.height),
                         );
@@ -252,10 +244,10 @@ impl ApplicationHandler for App {
                         // on movement.
                         let x_delta = (delta.0 as f32 / 100.0) / app.zoom;
                         let y_delta = (delta.1 as f32 / 100.0) / app.zoom;
-                        app.center_point = (
-                            app.center_point.0 + x_delta,
+                        app.view_center_point = Complex::new(
+                            app.view_center_point.re + x_delta,
                             // invert y axis movement
-                            app.center_point.1 - y_delta,
+                            app.view_center_point.im - y_delta,
                         );
                         app.window.request_redraw();
                     }
@@ -277,7 +269,7 @@ impl ApplicationHandler for App {
                         match raw_key_event.physical_key {
                             PhysicalKey::Code(winit::keyboard::KeyCode::KeyR) => {
                                 if raw_key_event.state == ElementState::Released {
-                                    app.center_point = (-0.5, 0.0);
+                                    app.view_center_point = Complex::new(-0.5, 0.0);
                                     app.zoom = 1.0;
                                     app.window.request_redraw();
                                 }
