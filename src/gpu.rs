@@ -1,7 +1,6 @@
-use std::{borrow::Cow, sync::Arc};
+use std::borrow::Cow;
 
 use wgpu::{BindGroupEntry, BufferBinding, BufferUsages, Device, Queue};
-use winit::window::Window;
 
 pub struct Wgpu {
     pub device: Device,
@@ -9,7 +8,7 @@ pub struct Wgpu {
 }
 
 impl Wgpu {
-    pub async fn new(window: Arc<Window>) -> Self {
+    pub async fn new() -> Self {
         let instance = wgpu::Instance::default();
         // Request an adapter that can support our surface
         let adapter = instance

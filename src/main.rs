@@ -12,7 +12,6 @@ use winit::{
 mod cpu;
 mod gpu;
 
-use cpu::Cpu;
 use gpu::Wgpu;
 
 #[derive(Default)]
@@ -22,10 +21,10 @@ struct App {
 
 struct InnerApp {
     pub window: Arc<Window>,
+    pub surface: softbuffer::Surface<Arc<Window>, Arc<Window>>,
 
     pub render_with_gpu: bool,
     pub gpu: Wgpu,
-    pub cpu: Cpu,
 
     pub focused: bool,
     pub in_window: bool,
@@ -44,14 +43,18 @@ impl InnerApp {
             .with_inner_size(winit::dpi::LogicalSize::new(1024.0, 768.0));
 
         let window = Arc::new(event_loop.create_window(window_attributes).unwrap());
-        let gpu = pollster::block_on(Wgpu::new(Arc::clone(&window)));
-        let cpu = Cpu::new(Arc::clone(&window));
+
+        // Initialize the softbuffer surface, used for drawing
+        let context = softbuffer::Context::new(Arc::clone(&window)).unwrap();
+        let surface = softbuffer::Surface::new(&context, Arc::clone(&window)).unwrap();
+
+        let gpu = pollster::block_on(Wgpu::new());
 
         InnerApp {
             window,
+            surface,
             render_with_gpu: true,
             gpu,
-            cpu,
             focused: true,
             in_window: false,
             left_mouse: ElementState::Released,
@@ -110,7 +113,7 @@ impl ApplicationHandler for App {
                 // Draw.
                 if let Some(app) = self.app.as_mut() {
                     if app.render_with_gpu {
-                        let mut buffer = app.cpu.surface.buffer_mut().unwrap();
+                        let mut buffer = app.surface.buffer_mut().unwrap();
 
                         // Adjusted physical resolution for the given dpi setting on a given screen.
                         let window_resolution = app.window.inner_size();
@@ -130,7 +133,7 @@ impl ApplicationHandler for App {
 
                         buffer.present().unwrap();
                     } else {
-                        let mut buffer = app.cpu.surface.buffer_mut().unwrap();
+                        let mut buffer = app.surface.buffer_mut().unwrap();
 
                         let window_resolution = app.window.inner_size();
 
@@ -180,7 +183,7 @@ impl ApplicationHandler for App {
             WindowEvent::Resized(window_resolution) => {
                 // Recreate the surface texture according to the new inner physical resolution.
                 if let Some(app) = self.app.as_mut() {
-                    let _ = app.cpu.surface.resize(
+                    let _ = app.surface.resize(
                         NonZeroU32::new(window_resolution.width).unwrap(),
                         NonZeroU32::new(window_resolution.height).unwrap(),
                     );
@@ -198,7 +201,7 @@ impl ApplicationHandler for App {
                     } else {
                         let window_resolution = app.window.inner_size();
                         // TODO: handle softbuffer error
-                        let _ = app.cpu.surface.resize(
+                        let _ = app.surface.resize(
                             NonZeroU32::new(window_resolution.width).unwrap(),
                             NonZeroU32::new(window_resolution.height).unwrap(),
                         );
@@ -304,7 +307,7 @@ impl ApplicationHandler for App {
 
                                     let window_resolution = app.window.inner_size();
                                     // TODO: handle softbuffer error
-                                    let _ = app.cpu.surface.resize(
+                                    let _ = app.surface.resize(
                                         NonZeroU32::new(window_resolution.width).unwrap(),
                                         NonZeroU32::new(window_resolution.height).unwrap(),
                                     );
