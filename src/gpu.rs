@@ -1,6 +1,8 @@
 use std::borrow::Cow;
 
+use num::Complex;
 use wgpu::{BindGroupEntry, BufferBinding, BufferUsages, Device, Queue};
+use winit::dpi::PhysicalSize;
 
 pub struct Wgpu {
     pub device: Device,
@@ -39,9 +41,9 @@ impl Wgpu {
     pub fn render(
         &mut self,
         buffer: &mut [u32],
-        upper_left: (f32, f32),
-        view_resolution: (f32, f32),
-        window_resolution: &winit::dpi::PhysicalSize<u32>,
+        upper_left: Complex<f32>,
+        view_resolution: &PhysicalSize<f32>,
+        window_resolution: &PhysicalSize<u32>,
     ) {
         // PREPARE COMPUTE
         // allocate local texture representation
@@ -159,10 +161,10 @@ impl Wgpu {
             &uniform_buffer,
             0,
             &[
-                upper_left.0,
-                upper_left.1,
-                view_resolution.0,
-                view_resolution.1,
+                upper_left.re,
+                upper_left.im,
+                view_resolution.width,
+                view_resolution.height,
                 window_resolution.width as f32,
                 window_resolution.height as f32,
             ]
