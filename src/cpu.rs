@@ -1,21 +1,6 @@
-use std::{sync::Arc, thread};
+use std::thread;
 
 use num::Complex;
-use winit::window::Window;
-
-pub struct Cpu {
-    pub context: softbuffer::Context<Arc<Window>>,
-    pub surface: softbuffer::Surface<Arc<Window>, Arc<Window>>,
-}
-
-impl Cpu {
-    pub fn new(window: Arc<Window>) -> Self {
-        let context = softbuffer::Context::new(Arc::clone(&window)).unwrap();
-        let surface = softbuffer::Surface::new(&context, window).unwrap();
-
-        Cpu { context, surface }
-    }
-}
 
 fn escape_time(c: Complex<f32>, limit: usize) -> Option<usize> {
     assert!(limit <= 256, "Limit must not exceed 256.");
