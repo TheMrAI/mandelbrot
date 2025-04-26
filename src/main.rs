@@ -70,7 +70,7 @@ fn center_to_start_conditions(
     view_center: &Complex<f32>,
     zoom: f32,
     window_resolution: &PhysicalSize<u32>,
-) -> (Complex<f32>, (f32, f32)) {
+) -> (Complex<f32>, PhysicalSize<f32>) {
     // We would like to have the whole mandelbrot set in view right from the start.
     // On the imaginary axis it is about 2.3 units tall.
     // Based on that and the physical resolution of the window the view into
@@ -78,12 +78,14 @@ fn center_to_start_conditions(
     let view_height = 2.3 * (1.0 / zoom);
     let view_width =
         (window_resolution.width as f32 / window_resolution.height as f32) * view_height;
+    let view_resolution = PhysicalSize::new(view_width, view_height);
+
     let top_left = Complex::new(
         view_center.re - (view_width / 2.0),
         view_center.im + (view_height / 2.0),
     );
 
-    (top_left, (view_width, view_height))
+    (top_left, view_resolution)
 }
 
 impl ApplicationHandler for App {
@@ -127,7 +129,7 @@ impl ApplicationHandler for App {
                         );
 
                         app.gpu
-                            .render(&mut buffer, top_left, view_resolution, &window_resolution);
+                            .render(&mut buffer, top_left, &view_resolution, &window_resolution);
 
                         buffer.present().unwrap();
                     } else {
@@ -141,7 +143,7 @@ impl ApplicationHandler for App {
                             &window_resolution,
                         );
 
-                        cpu::render(&mut buffer, top_left, view_resolution, &window_resolution);
+                        cpu::render(&mut buffer, top_left, &view_resolution, &window_resolution);
 
                         buffer.present().unwrap();
                     }

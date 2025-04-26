@@ -42,7 +42,7 @@ impl Wgpu {
         &mut self,
         buffer: &mut [u32],
         upper_left: Complex<f32>,
-        view_resolution: (f32, f32),
+        view_resolution: &PhysicalSize<f32>,
         window_resolution: &PhysicalSize<u32>,
     ) {
         // PREPARE COMPUTE
@@ -163,8 +163,8 @@ impl Wgpu {
             &[
                 upper_left.re,
                 upper_left.im,
-                view_resolution.0,
-                view_resolution.1,
+                view_resolution.width,
+                view_resolution.height,
                 window_resolution.width as f32,
                 window_resolution.height as f32,
             ]

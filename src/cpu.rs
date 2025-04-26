@@ -20,21 +20,21 @@ fn escape_time(c: Complex<f32>, limit: usize) -> Option<usize> {
 fn pixel_to_view(
     pixel: (u32, u32),
     upper_left: Complex<f32>,
-    view_resolution: (f32, f32), // real and imaginary axes
+    view_resolution: &PhysicalSize<f32>,
     window_resolution: &PhysicalSize<u32>,
 ) -> Complex<f32> {
     Complex {
         re: upper_left.re
-            + (pixel.0 as f32 * view_resolution.0 as f32 / window_resolution.width as f32),
+            + (pixel.0 as f32 * view_resolution.width / window_resolution.width as f32),
         im: upper_left.im
-            - (pixel.1 as f32 * view_resolution.1 as f32 / window_resolution.height as f32),
+            - (pixel.1 as f32 * view_resolution.height / window_resolution.height as f32),
     }
 }
 
 pub fn render(
     pixels: &mut [u32],
     upper_left: Complex<f32>,
-    view_resolution: (f32, f32),
+    view_resolution: &PhysicalSize<f32>,
     window_resolution: &PhysicalSize<u32>,
 ) {
     assert!(pixels.len() == window_resolution.width as usize * window_resolution.height as usize);
@@ -55,7 +55,7 @@ pub fn render(
             band_i: u32,
             band_height: u32,
             upper_left: Complex<f32>,
-            view_resolution: (f32, f32),
+            view_resolution: &PhysicalSize<f32>,
             window_resolution: &PhysicalSize<u32>,
         ) {
             let start_row = band_height * band_i;
