@@ -58,8 +58,10 @@ impl ApplicationHandler for App {
                     );
 
                     if app.render_with_gpu {
+                        let start = std::time::Instant::now();
                         app.gpu
                             .render(&mut buffer, top_left, &view_resolution, &window_resolution);
+                        println!("GPU frame time: {} ms", start.elapsed().as_millis());
                     } else {
                         let start = std::time::Instant::now();
                         cpu::render(&mut buffer, top_left, &view_resolution, &window_resolution);
