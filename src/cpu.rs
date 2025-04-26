@@ -1,6 +1,7 @@
 use std::thread;
 
 use num::Complex;
+use winit::dpi::PhysicalSize;
 
 fn escape_time(c: Complex<f32>, limit: usize) -> Option<usize> {
     assert!(limit <= 256, "Limit must not exceed 256.");
@@ -19,14 +20,14 @@ fn escape_time(c: Complex<f32>, limit: usize) -> Option<usize> {
 fn pixel_to_view(
     pixel: (u32, u32),
     upper_left: Complex<f32>,
-    view_resolution: (f32, f32),   // real and imaginary axes
-    window_resolution: (u32, u32), // x and y axes
+    view_resolution: (f32, f32), // real and imaginary axes
+    window_resolution: &PhysicalSize<u32>,
 ) -> Complex<f32> {
     Complex {
         re: upper_left.re
-            + (pixel.0 as f32 * view_resolution.0 as f32 / window_resolution.0 as f32),
+            + (pixel.0 as f32 * view_resolution.0 as f32 / window_resolution.width as f32),
         im: upper_left.im
-            - (pixel.1 as f32 * view_resolution.1 as f32 / window_resolution.1 as f32),
+            - (pixel.1 as f32 * view_resolution.1 as f32 / window_resolution.height as f32),
     }
 }
 
@@ -34,19 +35,19 @@ pub fn render(
     pixels: &mut [u32],
     upper_left: Complex<f32>,
     view_resolution: (f32, f32),
-    window_resolution: (u32, u32),
+    window_resolution: &PhysicalSize<u32>,
 ) {
-    assert!(pixels.len() == window_resolution.0 as usize * window_resolution.1 as usize);
+    assert!(pixels.len() == window_resolution.width as usize * window_resolution.height as usize);
 
     let thread_count = match std::thread::available_parallelism() {
         Ok(parallelism) => parallelism.get(),
         Err(_) => 4,
     };
-    let band_height = std::cmp::max(window_resolution.1 / thread_count as u32, 50);
+    let band_height = std::cmp::max(window_resolution.height / thread_count as u32, 50);
 
     {
         let bands = pixels
-            .chunks_mut((window_resolution.0 * band_height) as usize)
+            .chunks_mut((window_resolution.width * band_height) as usize)
             .collect::<Vec<&mut [u32]>>();
 
         fn render_chunk(
@@ -55,14 +56,14 @@ pub fn render(
             band_height: u32,
             upper_left: Complex<f32>,
             view_resolution: (f32, f32),
-            window_resolution: (u32, u32),
+            window_resolution: &PhysicalSize<u32>,
         ) {
             let start_row = band_height * band_i;
-            let height = band.len() as u32 / window_resolution.0;
+            let height = band.len() as u32 / window_resolution.width;
             let end_row = start_row + height;
 
             for row in start_row..end_row {
-                for column in 0..window_resolution.0 {
+                for column in 0..window_resolution.width {
                     let point = pixel_to_view(
                         (column, row),
                         upper_left,
@@ -70,7 +71,7 @@ pub fn render(
                         window_resolution,
                     );
                     // within the given band
-                    let pixel_index = (row - start_row) * window_resolution.0 + column;
+                    let pixel_index = (row - start_row) * window_resolution.width + column;
                     band[pixel_index as usize] = match escape_time(point, 256) {
                         None => 0,
                         Some(count) => {

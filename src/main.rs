@@ -3,6 +3,7 @@ use std::{num::NonZeroU32, sync::Arc};
 use num::Complex;
 use winit::{
     application::ApplicationHandler,
+    dpi::PhysicalSize,
     event::{DeviceEvent, ElementState, WindowEvent},
     event_loop::{ControlFlow, EventLoop},
     keyboard::PhysicalKey,
@@ -66,16 +67,17 @@ impl InnerApp {
 }
 
 fn center_to_start_conditions(
-    view_center: Complex<f32>,
+    view_center: &Complex<f32>,
     zoom: f32,
-    window_resolution: (u32, u32),
+    window_resolution: &PhysicalSize<u32>,
 ) -> (Complex<f32>, (f32, f32)) {
     // We would like to have the whole mandelbrot set in view right from the start.
     // On the imaginary axis it is about 2.3 units tall.
     // Based on that and the physical resolution of the window the view into
     // the mandelbrot space is scaled appropriately.
     let view_height = 2.3 * (1.0 / zoom);
-    let view_width = (window_resolution.0 as f32 / window_resolution.1 as f32) * view_height;
+    let view_width =
+        (window_resolution.width as f32 / window_resolution.height as f32) * view_height;
     let top_left = Complex::new(
         view_center.re - (view_width / 2.0),
         view_center.im + (view_height / 2.0),
@@ -119,9 +121,9 @@ impl ApplicationHandler for App {
                         let window_resolution = app.window.inner_size();
 
                         let (top_left, view_resolution) = center_to_start_conditions(
-                            app.view_center_point,
+                            &app.view_center_point,
                             app.zoom,
-                            (window_resolution.width, window_resolution.height),
+                            &window_resolution,
                         );
 
                         app.gpu
@@ -134,17 +136,12 @@ impl ApplicationHandler for App {
                         let window_resolution = app.window.inner_size();
 
                         let (top_left, view_resolution) = center_to_start_conditions(
-                            app.view_center_point,
+                            &app.view_center_point,
                             app.zoom,
-                            (window_resolution.width, window_resolution.height),
+                            &window_resolution,
                         );
 
-                        cpu::render(
-                            &mut buffer,
-                            top_left,
-                            view_resolution,
-                            (window_resolution.width, window_resolution.height),
-                        );
+                        cpu::render(&mut buffer, top_left, view_resolution, &window_resolution);
 
                         buffer.present().unwrap();
                     }
