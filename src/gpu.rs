@@ -46,9 +46,7 @@ impl Wgpu {
         window_resolution: &PhysicalSize<u32>,
     ) {
         // PREPARE COMPUTE
-        // allocate local texture representation
-        let mut texture_data =
-            vec![0u8; (window_resolution.width * window_resolution.height * 4) as usize];
+
         // Load the shaders
         let shader = self
             .device
@@ -77,7 +75,7 @@ impl Wgpu {
             storage_texture.create_view(&wgpu::TextureViewDescriptor::default());
         let output_staging_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("output staging buffer"),
-            size: size_of_val(&texture_data[..]) as u64,
+            size: size_of_val(buffer) as u64,
             usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
             mapped_at_creation: false,
         });
@@ -222,24 +220,30 @@ impl Wgpu {
         self.device.poll(wgpu::PollType::Wait).unwrap();
         {
             let view = buffer_slice.get_mapped_range();
-            texture_data.copy_from_slice(&view[..]);
-        }
-        output_staging_buffer.unmap();
-
-        // this is rather nasty
-        // softbuffer expects the value as ARGB while
-        // the texture is produced as RGBA
-        // TODO maybe we can do better?
-        for row in 0..window_resolution.height {
-            for column in 0..window_resolution.width {
-                let texture_column_width = window_resolution.width * 4;
-                let texture_index = ((row * texture_column_width) + column * 4) as usize;
-                let shifted = (texture_data[texture_index] as u32) << 16
-                    | (texture_data[texture_index + 1] as u32) << 8
-                    | (texture_data[texture_index + 2] as u32);
-                let pixel_index = (row * window_resolution.width + column) as usize;
-                buffer[pixel_index] = shifted;
+            // The incoming texel data has byte order RGBA, and the softbuffer expects it to be in
+            // 0RGB (no alpha, first byte completely zero)
+            // Ideally it would be best if we could just take the mapped buffer_slice and
+            // [transmute_copy](https://doc.rust-lang.org/std/mem/fn.transmute_copy.html) it into the buffer, but this
+            // wouldn't help as we would have to go through the bytes anyways and shift them 8 bits to the right, to be
+            // in the correct format. We could also just cast the buffer_slice as an *u32 ptr step through the elements
+            // and copy the shifted values into the softbuffer buffer.
+            // Neither of these options will work, because the moment an u8 slice is reinterpreted as a u32 slice
+            // (same for raw pointers) the stored byte order will change.
+            // 0xFF00FF00 will become 0x00FF00FF, the issue comes from the endianess of the u32 on your system.
+            // With u32::from_be_bytes, u32::from_le_bytes you can reliably recast a 4 bytes into an u32, but you must
+            // know the appropriate endiannes. This same issue comes when calling transmute functions, the byte order
+            // will change. So we simply construct the u32 values by hand and sidestep this problem altogether. While
+            // it doesn't appear very efficient it seems to get pretty well optimized, and in practice couldn't observe
+            // much overhead (if any), when compared to simply casting/copying memory.
+            // Why does the order of bytes change when casting the u8 ptr to u32 mess with memory order of the bytes is
+            // a mystery.
+            for (buffer_index, item) in buffer.iter_mut().enumerate() {
+                let view_index = buffer_index * 4;
+                *item = (view[view_index] as u32) << 16
+                    | (view[view_index + 1] as u32) << 8
+                    | (view[view_index + 2] as u32);
             }
         }
+        output_staging_buffer.unmap();
     }
 }

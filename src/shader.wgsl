@@ -27,7 +27,9 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
 
     let escapes_in = escape_time(point, 256u);
     let intensity: f32 = f32(escapes_in) / 255.0;
-
+    // https://www.w3.org/TR/WGSL/#texturestore
+    // https://www.w3.org/TR/WGSL/#storage-texel-formats
+    // Texel channel order: RGBA for rgba8unorm texel format 
     textureStore(texture, vec2(i32(id.x), i32(id.y)), vec4(intensity, intensity, intensity, 1.0));
 }
 
