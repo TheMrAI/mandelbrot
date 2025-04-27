@@ -79,9 +79,10 @@ impl Wgpu {
             usage: wgpu::TextureUsages::STORAGE_BINDING | wgpu::TextureUsages::COPY_SRC,
             view_formats: &[],
         });
-        // TODO why default?
-        let storage_texture_view =
-            storage_texture.create_view(&wgpu::TextureViewDescriptor::default());
+        let storage_texture_view = storage_texture.create_view(&wgpu::TextureViewDescriptor {
+            label: Some("storage_texture_view"),
+            ..Default::default()
+        });
         let output_staging_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("output staging buffer"),
             size: size_of_val(buffer) as u64,
