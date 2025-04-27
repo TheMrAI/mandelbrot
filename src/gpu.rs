@@ -4,12 +4,13 @@ use std::{
 };
 
 use num::Complex;
-use wgpu::{BindGroupEntry, BufferBinding, BufferUsages, Device, Queue};
+use wgpu::{BindGroupEntry, BufferBinding, BufferUsages, Device, Queue, ShaderModule};
 use winit::dpi::PhysicalSize;
 
 pub struct Wgpu {
     pub device: Device,
     pub queue: Queue,
+    pub shader: ShaderModule,
 }
 
 impl Wgpu {
@@ -38,7 +39,17 @@ impl Wgpu {
             .expect("Failed to create device");
         println!("Prepared device: {:?}", device);
 
-        Wgpu { device, queue }
+        // Load the shaders
+        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("shader"),
+            source: wgpu::ShaderSource::Wgsl(Cow::Borrowed(include_str!("shader.wgsl"))),
+        });
+
+        Wgpu {
+            device,
+            queue,
+            shader,
+        }
     }
 
     pub fn render(
@@ -49,14 +60,9 @@ impl Wgpu {
         window_resolution: &PhysicalSize<u32>,
     ) {
         // PREPARE COMPUTE
-
-        // Load the shaders
-        let shader = self
-            .device
-            .create_shader_module(wgpu::ShaderModuleDescriptor {
-                label: Some("shader"),
-                source: wgpu::ShaderSource::Wgsl(Cow::Borrowed(include_str!("shader.wgsl"))),
-            });
+        // Because the size of the storage texture may change as the window is resized
+        // or moved between monitors that use different DPI settings, the whole compute
+        // pipeline must be rebuilt for each rendering cycle.
 
         // Storage texture for calculation output
         let storage_texture = self.device.create_texture(&wgpu::TextureDescriptor {
@@ -152,7 +158,7 @@ impl Wgpu {
                 .create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
                     label: Some("mandelbrot compute pipeline"),
                     layout: Some(&pipeline_layout),
-                    module: &shader,
+                    module: &self.shader,
                     entry_point: Some("main"),
                     compilation_options: Default::default(),
                     cache: None,
