@@ -181,31 +181,12 @@ impl ApplicationHandler for App {
                                 if raw_key_event.state == ElementState::Released {
                                     app.render_with_gpu = true;
 
-                                    // let window_resolution = app.window.inner_size();
-                                    // let config = app
-                                    //     .gpu
-                                    //     .surface
-                                    //     .get_default_config(
-                                    //         &app.gpu.adapter,
-                                    //         window_resolution.width,
-                                    //         window_resolution.height,
-                                    //     )
-                                    //     .unwrap();
-                                    // app.gpu.surface.configure(&app.gpu.device, &config);
-
                                     app.window.request_redraw();
                                 }
                             }
                             PhysicalKey::Code(winit::keyboard::KeyCode::KeyC) => {
                                 if raw_key_event.state == ElementState::Released {
                                     app.render_with_gpu = false;
-
-                                    let window_resolution = app.window.inner_size();
-                                    // TODO: handle softbuffer error
-                                    let _ = app.surface.resize(
-                                        NonZeroU32::new(window_resolution.width).unwrap(),
-                                        NonZeroU32::new(window_resolution.height).unwrap(),
-                                    );
 
                                     app.window.request_redraw();
                                 }
