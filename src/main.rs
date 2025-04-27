@@ -172,8 +172,8 @@ impl ApplicationHandler for App {
                         match raw_key_event.physical_key {
                             PhysicalKey::Code(winit::keyboard::KeyCode::KeyR) => {
                                 if raw_key_event.state == ElementState::Released {
-                                    app.view_center_point = Complex::new(-0.5, 0.0);
-                                    app.zoom = 1.0;
+                                    (app.view_center_point, app.zoom) =
+                                        InnerApp::default_camera_settings();
                                     app.window.request_redraw();
                                 }
                             }
