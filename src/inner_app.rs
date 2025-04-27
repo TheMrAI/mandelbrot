@@ -36,6 +36,8 @@ impl InnerApp {
 
         let gpu = pollster::block_on(Wgpu::new());
 
+        let (view_center_point, zoom) = InnerApp::default_camera_settings();
+
         InnerApp {
             window,
             surface,
@@ -44,10 +46,16 @@ impl InnerApp {
             focused: true,
             in_window: false,
             left_mouse: ElementState::Released,
-            view_center_point: Complex::new(-0.5, 0.0),
-            zoom: 1.0,
+            view_center_point,
+            zoom,
             zoom_step: 1.0,
         }
+    }
+
+    // Produce the default camera center point and zoom factor so
+    // that the whole mandelbrot set is in view.
+    pub fn default_camera_settings() -> (Complex<f32>, f32) {
+        (Complex::new(-0.5, 0.0), 1.0)
     }
 }
 

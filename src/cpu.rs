@@ -37,7 +37,7 @@ pub fn render(
     view_resolution: &PhysicalSize<f32>,
     window_resolution: &PhysicalSize<u32>,
 ) {
-    assert!(pixels.len() == window_resolution.width as usize * window_resolution.height as usize);
+    debug_assert!(pixels.len() == window_resolution.width as usize * window_resolution.height as usize);
 
     let thread_count = match std::thread::available_parallelism() {
         Ok(parallelism) => parallelism.get(),

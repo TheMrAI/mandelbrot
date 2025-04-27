@@ -17,7 +17,6 @@ var texture: texture_storage_2d<rgba8unorm, write>;
 @compute
 @workgroup_size(1)
 fn main(@builtin(global_invocation_id) id: vec3<u32>) {
-    // TODO what is workgroup_size 1, invocation id etc???
     // The position scaling codes might look a bit confusing.
     // What we are doing is taking a pixel position and then transforming it into the mandelbrot space.
     // This would be written down as (id.x / settings.window.x) * settings.view_width, which is equivalent
@@ -27,7 +26,9 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
 
     let escapes_in = escape_time(point, 256u);
     let intensity: f32 = f32(escapes_in) / 255.0;
-
+    // https://www.w3.org/TR/WGSL/#texturestore
+    // https://www.w3.org/TR/WGSL/#storage-texel-formats
+    // Texel channel order: RGBA for rgba8unorm texel format 
     textureStore(texture, vec2(i32(id.x), i32(id.y)), vec4(intensity, intensity, intensity, 1.0));
 }
 
