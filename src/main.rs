@@ -23,7 +23,6 @@ impl ApplicationHandler for App {
     fn resumed(&mut self, event_loop: &winit::event_loop::ActiveEventLoop) {
         // The Window should be created in this call, because the winit documentation states that this
         // is the only point which they could guarantee proper initialization on all supported platforms.
-        // And since WebGPU heavily relies on the Window object, this is where that should be initialized as well.
         self.app = Some(InnerApp::new(event_loop));
     }
 
@@ -96,29 +95,12 @@ impl ApplicationHandler for App {
             WindowEvent::Resized(window_resolution) => {
                 // Recreate the surface texture according to the new inner physical resolution.
                 if let Some(app) = self.app.as_mut() {
-                    let _ = app.surface.resize(
-                        NonZeroU32::new(window_resolution.width).unwrap(),
-                        NonZeroU32::new(window_resolution.height).unwrap(),
-                    );
-                    if app.render_with_gpu {
-                        // let config = app
-                        //     .gpu
-                        //     .surface
-                        //     .get_default_config(
-                        //         &app.gpu.adapter,
-                        //         inner_size.width,
-                        //         inner_size.height,
-                        //     )
-                        //     .unwrap();
-                        // app.gpu.surface.configure(&app.gpu.device, &config);
-                    } else {
-                        let window_resolution = app.window.inner_size();
-                        // TODO: handle softbuffer error
-                        let _ = app.surface.resize(
+                    app.surface
+                        .resize(
                             NonZeroU32::new(window_resolution.width).unwrap(),
                             NonZeroU32::new(window_resolution.height).unwrap(),
-                        );
-                    }
+                        )
+                        .expect("failed to resize softbuffer texture");
                 }
             }
             _ => (),
