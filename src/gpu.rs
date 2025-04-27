@@ -1,4 +1,7 @@
-use std::borrow::Cow;
+use std::{
+    borrow::Cow,
+    sync::{atomic::AtomicBool, Arc},
+};
 
 use num::Complex;
 use wgpu::{BindGroupEntry, BufferBinding, BufferUsages, Device, Queue};
@@ -213,12 +216,22 @@ impl Wgpu {
         self.queue.submit(Some(command_encoder.finish()));
 
         let buffer_slice = output_staging_buffer.slice(..);
-        // TODO do you need to synchronize on the callback result or is it enough that your poll
-        // has returned? for the time being I think it should be enough, but more investigation is
-        // warranted
-        buffer_slice.map_async(wgpu::MapMode::Read, move |_| {});
-        self.device.poll(wgpu::PollType::Wait).unwrap();
+
+        let mapping_result = Arc::new(AtomicBool::new(false));
         {
+            let mapping_result = Arc::clone(&mapping_result);
+            buffer_slice.map_async(wgpu::MapMode::Read, move |result| match result {
+                Ok(()) => {
+                    mapping_result.store(true, std::sync::atomic::Ordering::Release);
+                }
+                Err(err) => {
+                    eprintln!("failed to map texture: {:?}", err);
+                }
+            });
+        }
+        self.device.poll(wgpu::PollType::Wait).unwrap();
+
+        if mapping_result.load(std::sync::atomic::Ordering::Acquire) {
             let view = buffer_slice.get_mapped_range();
             // The incoming texel data has byte order RGBA, and the softbuffer expects it to be in
             // 0RGB (no alpha, first byte completely zero)
