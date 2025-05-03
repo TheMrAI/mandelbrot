@@ -1,6 +1,6 @@
 use std::{
     borrow::Cow,
-    sync::{atomic::AtomicBool, Arc},
+    sync::{Arc, Condvar, Mutex},
 };
 
 use num::Complex;
@@ -224,45 +224,58 @@ impl Wgpu {
 
         let buffer_slice = output_staging_buffer.slice(..);
 
-        let mapping_result = Arc::new(AtomicBool::new(false));
+        let result_signal = Arc::new((Mutex::new(None), Condvar::new()));
         {
-            let mapping_result = Arc::clone(&mapping_result);
-            buffer_slice.map_async(wgpu::MapMode::Read, move |result| match result {
-                Ok(()) => {
-                    mapping_result.store(true, std::sync::atomic::Ordering::Release);
-                }
-                Err(err) => {
-                    eprintln!("failed to map texture: {:?}", err);
-                }
+            let result_signal = Arc::clone(&result_signal);
+            buffer_slice.map_async(wgpu::MapMode::Read, move |result| {
+                let (lock, condvar) = &*result_signal;
+                let mut result_lock = lock.lock().unwrap();
+                *result_lock = Some(result);
+                condvar.notify_one();
             });
         }
         self.device.poll(wgpu::PollType::Wait).unwrap();
 
-        if mapping_result.load(std::sync::atomic::Ordering::Acquire) {
-            let view = buffer_slice.get_mapped_range();
-            // The incoming texel data has byte order RGBA, and the softbuffer expects it to be in
-            // 0RGB (no alpha, first byte completely zero)
-            // Ideally it would be best if we could just take the mapped buffer_slice and
-            // [transmute_copy](https://doc.rust-lang.org/std/mem/fn.transmute_copy.html) it into the buffer, but this
-            // wouldn't help as we would have to go through the bytes anyways and shift them 8 bits to the right, to be
-            // in the correct format. We could also just cast the buffer_slice as an *u32 ptr step through the elements
-            // and copy the shifted values into the softbuffer buffer.
-            // Neither of these options will work, because the moment an u8 slice is reinterpreted as a u32 slice
-            // (same for raw pointers) the stored byte order will change.
-            // 0xFF00FF00 will become 0x00FF00FF, the issue comes from the endianess of the u32 on your system.
-            // With u32::from_be_bytes, u32::from_le_bytes you can reliably recast a 4 bytes into an u32, but you must
-            // know the appropriate endiannes. This same issue comes when calling transmute functions, the byte order
-            // will change. So we simply construct the u32 values by hand and sidestep this problem altogether. While
-            // it doesn't appear very efficient it seems to get pretty well optimized, and in practice couldn't observe
-            // much overhead (if any), when compared to simply casting/copying memory.
-            // Why does the order of bytes change when casting the u8 ptr to u32 mess with memory order of the bytes is
-            // a mystery.
-            for (buffer_index, item) in buffer.iter_mut().enumerate() {
-                let view_index = buffer_index * 4;
-                *item = (view[view_index] as u32) << 16
-                    | (view[view_index + 1] as u32) << 8
-                    | (view[view_index + 2] as u32);
+        // Wait for data to sync to the CPU
+        let (lock, condvar) = &*result_signal;
+        let mut result_lock = lock.lock().unwrap();
+        while result_lock.is_none() {
+            result_lock = condvar.wait(result_lock).unwrap();
+        }
+        // At this point the data has been mapped
+        let mapping_result = result_lock.as_ref();
+        debug_assert!(
+            mapping_result.is_some(),
+            "a sync result must be available at this point"
+        );
+        match mapping_result.unwrap() {
+            Ok(()) => {
+                let view = buffer_slice.get_mapped_range();
+                // The incoming texel data has byte order RGBA, and the softbuffer expects it to be in
+                // 0RGB (no alpha, first byte completely zero)
+                // Ideally it would be best if we could just take the mapped buffer_slice and
+                // [transmute_copy](https://doc.rust-lang.org/std/mem/fn.transmute_copy.html) it into the buffer, but this
+                // wouldn't help as we would have to go through the bytes anyways and shift them 8 bits to the right, to be
+                // in the correct format. We could also just cast the buffer_slice as an *u32 ptr step through the elements
+                // and copy the shifted values into the softbuffer buffer.
+                // Neither of these options will work, because the moment an u8 slice is reinterpreted as a u32 slice
+                // (same for raw pointers) the stored byte order will change.
+                // 0xFF00FF00 will become 0x00FF00FF, the issue comes from the endianess of the u32 on your system.
+                // With u32::from_be_bytes, u32::from_le_bytes you can reliably recast a 4 bytes into an u32, but you must
+                // know the appropriate endiannes. This same issue comes when calling transmute functions, the byte order
+                // will change. So we simply construct the u32 values by hand and sidestep this problem altogether. While
+                // it doesn't appear very efficient it seems to get pretty well optimized, and in practice couldn't observe
+                // much overhead (if any), when compared to simply casting/copying memory.
+                // Why does the order of bytes change when casting the u8 ptr to u32 mess with memory order of the bytes is
+                // a mystery.
+                for (buffer_index, item) in buffer.iter_mut().enumerate() {
+                    let view_index = buffer_index * 4;
+                    *item = (view[view_index] as u32) << 16
+                        | (view[view_index + 1] as u32) << 8
+                        | (view[view_index + 2] as u32);
+                }
             }
+            Err(err) => eprintln!("failed to map texture: {:?}", err),
         }
         output_staging_buffer.unmap();
     }
